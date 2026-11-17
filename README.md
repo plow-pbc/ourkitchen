@@ -283,6 +283,8 @@ When a cook completes a turn:
 
 The sous's own Stop hook does not notify its own socket, preventing an echo loop.
 
+A session whose Claude login has expired can't run turns, so it can't say so itself. Claude Code still runs its `StopFailure` hook (matcher `authentication_failed`). In a kitchen with a plow-chat line, that hook texts the owner's 1:1 chat on the line, once: `<agent>: my Claude login expired; run /login in my pane`. The sous and its cooks share the login, so the first to fail sends it, and `login-expired` in the state dir holds the rest. The next turn that ends normally removes that file, so a later expiry is told again. A kitchen with only Swarm stays silent: its DMs are end-to-end encrypted, and only swarm's own session client can send into them.
+
 ## Where state lives
 
 ```text
