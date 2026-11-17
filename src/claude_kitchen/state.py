@@ -180,9 +180,25 @@ def swarm_join_prompt(user_id: str, rooms: list[str]) -> str:
     return f"Call the swarm `join` tool as account {user_id} once for each of: {', '.join(rooms)}. Say nothing else."
 
 
-def sous_first_turn(kitchen: str) -> list[str]:
-    """The sous's launch prompt, if it has swarm rooms to join."""
-    joins = [swarm_join_prompt(a["user_id"], rooms) for a in swarm_accounts(kitchen) if (rooms := swarm_rooms(a))]
+# The first swarm build to receive an account's saved rooms and DMs again by itself.
+SWARM_RESUMES = 156
+
+
+def swarm_build() -> int:
+    """The installed swarm's build number: 156 in `0.1.9 (156, commit …)`."""
+    out = subprocess.run([swarm_binary(), "--version"], capture_output=True, text=True, check=True).stdout
+    return int(re.search(r"\((\d+),", json.loads(out)["version"])[1])
+
+
+def sous_first_turn(kitchen: str, resuming: bool) -> list[str]:
+    """The sous's launch prompt, if it has swarm rooms to join. A swarm that
+    resumes receives them again itself when it is bound to the kitchen's one
+    account, or when the sous resumes the session that saved them, so there
+    the prompt would only spend its context rejoining."""
+    accounts = swarm_accounts(kitchen)
+    if accounts and (resuming or len(accounts) == 1) and swarm_build() >= SWARM_RESUMES:
+        return []
+    joins = [swarm_join_prompt(a["user_id"], rooms) for a in accounts if (rooms := swarm_rooms(a))]
     return [" ".join(joins)] if joins else []
 
 

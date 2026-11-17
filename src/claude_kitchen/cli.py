@@ -1468,7 +1468,7 @@ def cmd_restart(args):
         sys.exit(f"The sous of \"{kitchen}\" isn't running; bring it back with `kitchen open --resume`.")
     # The new sous's swarm joins are built now, while the old sous still runs,
     # so a swarm that fails fails this restart rather than leaving no sous.
-    first_turn = f"{FIRST_TURN_ENV}={json.dumps(sous_first_turn(kitchen))}"
+    first_turn = f"{FIRST_TURN_ENV}={json.dumps(sous_first_turn(kitchen, resuming=True))}"
     # Wait out the old sous so open's live-sous check passes; a shell takes the
     # pane back when the new sous exits, as it had before. The relaunched
     # `kitchen open` confirms the dev-channels dialog itself.

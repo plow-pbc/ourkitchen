@@ -84,7 +84,7 @@ def spawn_sous(kitchen: str, state_dir: Path, sous_prompt: str,
     claude_args.extend(["--append-system-prompt", sous_prompt])
     # `kitchen restart` builds the turn while the old sous still runs and hands it over here.
     turn = os.environ.pop(FIRST_TURN_ENV, None)
-    claude_args.extend(json.loads(turn) if turn is not None else sous_first_turn(kitchen))
+    claude_args.extend(json.loads(turn) if turn is not None else sous_first_turn(kitchen, resuming=resume_session_id is not None))
     if project:
         os.chdir(project)
     os.execvp("claude", claude_args)

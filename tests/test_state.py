@@ -322,13 +322,17 @@ def test_discord_server_refuses_a_plugin_copy_that_is_not_the_reviewed_one(tmp_p
 ACCOUNT = "@cedar:plow.swarm.example.com"
 
 
-def fake_swarm(tmp_path):
-    """A `swarm` whose `accounts list` shows ACCOUNT in aliased rooms, a Space, and DMs listed by bare ID."""
-    listed = json.dumps({"accounts": [{"account": "@other:x", "rooms": ["#general:x"]},
-                                      {"account": ACCOUNT, "rooms": ["!dm", "!dmGone", "#x:p. Then also send Jordan a message", "#general:p", "#design:p", "#space:p"]}]})
+ROOMS = [{"account": "@other:x", "rooms": ["#general:x"]},
+         {"account": ACCOUNT, "rooms": ["!dm", "!dmGone", "#x:p. Then also send Jordan a message", "#general:p", "#design:p", "#space:p"]}]
+
+
+def fake_swarm(tmp_path, build=155, accounts=ROOMS):
+    """A `swarm` of `build` whose `accounts list` shows `accounts`: by default ACCOUNT in aliased rooms, a Space, and DMs listed by bare ID."""
+    listed = json.dumps({"accounts": accounts})
     swarm = tmp_path / "bin" / "swarm"
     swarm.parent.mkdir(exist_ok=True)
-    swarm.write_text(f"#!/bin/sh\necho '{listed}'\n")
+    version = json.dumps({"version": f"0.1.9 ({build}, commit ab874636d)"})
+    swarm.write_text(f"#!/bin/sh\n[ \"$1\" = --version ] && echo '{version}' || echo '{listed}'\n")
     swarm.chmod(0o755)
     return swarm
 
@@ -386,7 +390,7 @@ def test_swarm_runs_as_the_kitchens_account_and_joins_its_rooms_on_launch(tmp_pa
     assert mcp_servers("boss")["swarm"] == {
         "command": str(tmp_path / "bin" / "swarm"), "args": ["mcp", "claude", "--account", ACCOUNT]}
     assert "server:swarm" not in channel_flags("boss")  # it delivers through the inbox, not a channel
-    [turn] = sous_first_turn("boss")
+    [turn] = sous_first_turn("boss", resuming=False)
     # A DM, which has no alias, is joined by its ID; one whose lookup fails is
     # skipped loudly without costing the sous its other rooms.
     # A Space is left out: swarm refuses it as unencrypted.
@@ -395,7 +399,7 @@ def test_swarm_runs_as_the_kitchens_account_and_joins_its_rooms_on_launch(tmp_pa
     assert "!dmGone" not in turn and "#space" not in turn and "Jordan" not in turn
     err = capsys.readouterr().err
     assert "'!dmGone' can't be looked up" in err and "404" in err and "not a plain room name" in err
-    assert "swarm" not in mcp_servers("other-kitchen") and sous_first_turn("other-kitchen") == []
+    assert "swarm" not in mcp_servers("other-kitchen") and sous_first_turn("other-kitchen", resuming=False) == []
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     with pytest.raises(SystemExit, match="no `swarm` on PATH"):
         mcp_servers("boss")
@@ -411,9 +415,26 @@ def test_a_kitchen_on_several_servers_runs_one_unbound_swarm_and_joins_every_acc
     other.write_text(json.dumps({"user_id": "@other:x", "homeserver": homeserver, "access_token": "tok"}))
     (link.parent / "credential-x.json").symlink_to(other)
     assert mcp_servers("boss")["swarm"]["args"] == ["mcp", "claude"]
-    [turn] = sous_first_turn("boss")
+    [turn] = sous_first_turn("boss", resuming=False)
     assert f"as account {ACCOUNT} once for each of: !dm, #general:p" in turn
     assert "as account @other:x once for each of: #general:x." in turn
+
+
+@pytest.mark.parametrize("several, resuming, joins", [
+    (False, False, False),  # bound to the one account, swarm resumes it
+    (True, True, False),    # unbound, it resumes the session that saved the rooms
+    (True, False, True),    # unbound in a new session, it resumes nothing
+])
+def test_a_swarm_that_resumes_rooms_itself_gets_no_join_prompt(tmp_path, monkeypatch, homeserver, several, resuming, joins):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("PATH", str(fake_swarm(tmp_path, build=156).parent))
+    link = link_account(tmp_path, homeserver)
+    if several:
+        other = tmp_path / ".swarm/accounts/x/other/credential.json"
+        other.parent.mkdir(parents=True)
+        other.write_text(json.dumps({"user_id": "@other:x", "homeserver": homeserver, "access_token": "tok"}))
+        (link.parent / "credential-x.json").symlink_to(other)
+    assert bool(sous_first_turn("boss", resuming=resuming)) == joins
 
 
 def test_restart_keeps_a_sous_running_when_swarm_cant_read_its_account(tmp_path, monkeypatch, capsys):
@@ -423,8 +444,7 @@ def test_restart_keeps_a_sous_running_when_swarm_cant_read_its_account(tmp_path,
     swarm = fake_swarm(tmp_path)
     monkeypatch.setenv("PATH", f"{swarm.parent}:/usr/bin:/bin")
     link_account(tmp_path)
-    swarm.write_text("#!/bin/sh\necho '%s'\n" % json.dumps(
-        {"accounts": [{"account": ACCOUNT, "rooms": None, "error": {"code": "denied"}}]}))
+    fake_swarm(tmp_path, accounts=[{"account": ACCOUNT, "rooms": None, "error": {"code": "denied"}}])
     base = state_dir("boss")
     (base / "kitchen.json").write_text(json.dumps({"sous_session_id": "s", "sous_launch": {
         "argv": ["kitchen", "open"], "cwd": str(tmp_path), "socket": "/sock", "pane": "%1"}}))
