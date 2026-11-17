@@ -883,8 +883,6 @@ def cmd_hook(args):
 
     if backend == "claude" and (event == "Stop" or payload.get("error") == "authentication_failed"):
         _login_alert(kitchen, name, event == "StopFailure")
-    if event == "StopFailure":
-        return
 
     if name == "sous":
         # Sous hook is otherwise a no-op — prevents echo loops where the sous's
