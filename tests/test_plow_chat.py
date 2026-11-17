@@ -880,8 +880,8 @@ def test_an_expired_claude_login_tells_the_owner_once_until_a_turn_ends_normally
         monkeypatch.setattr("claude_kitchen.channel.send_to_socket", lambda *_: None)
         cmd_hook(argparse.Namespace(command="hook"))
 
-    turn_ends("sous", "StopFailure", "rate_limit")
     turn_ends("sous", "StopFailure", "authentication_failed")
+    turn_ends("sous", "StopFailure", "rate_limit")  # failed too, so it re-arms nothing
     turn_ends("eng", "StopFailure", "authentication_failed")
     assert fake.sent == [(SOLO, "sous: my Claude login expired; run /login in my pane")]
     turn_ends("sous", "Stop")
