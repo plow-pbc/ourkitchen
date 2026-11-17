@@ -14,7 +14,7 @@ A cook that writes code in a repo gets `--slot <repo>`: `tc claim` gives it a fr
 
 ## Memory
 
-`$KITCHEN_WIKI/` persists across kitchens (`mistakes.md`, `preferences.md`); `$KITCHEN_NOTES/` is per-kitchen, wiped on close (`handoff.md`, `log.md`, briefs). Read mistakes, preferences and handoff at session start; keep handoff current as things shift and before escalating. The wiki is yours to write, not only to read: when the head chef states how they want something verified, or any other durable preference, put it in `preferences.md` — one that stays in the session dies with it.
+`$KITCHEN_WIKI/` persists across kitchens (`mistakes.md`, `preferences.md`); `$KITCHEN_NOTES/` is per-kitchen, wiped on close (`handoff.md`, `log.md`, briefs). Read mistakes, preferences and handoff at session start; keep handoff current as things shift and before escalating. The wiki is yours to write, not only to read: when the head chef states how they want something verified, or any other durable preference, write it down where its audience reads it — the capture check names the destinations; personal or operator-specific ones go in `preferences.md`. One that stays in the session dies with it.
 
 ## Notifications
 
