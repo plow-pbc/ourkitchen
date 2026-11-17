@@ -9,7 +9,9 @@ assert_rc 0 "$rc" "capture-answer exits 0"
 printf '%s' "$out" | jq -e . >/dev/null 2>&1; assert_rc 0 $? "capture-answer emits valid JSON"
 assert_eq "PostToolUse" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.hookEventName')" "capture-answer event name"
 ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')
-assert_contains "$ctx" "feedback memory" "capture-answer nudges a feedback memory"
+assert_contains "$ctx" "plow-pbc/kitchen-agents" "capture-answer routes generalizable behavior to kitchen-agents"
+assert_contains "$ctx" "\$PERSONAL_RUNBOOK/projects/" "capture-answer routes personal notes to the personal runbook"
+assert_contains "$ctx" "never to Claude's auto-memory" "capture-answer keeps notes out of auto-memory"
 assert_contains "$ctx" "Why:" "capture-answer asks for Why"
 assert_contains "$ctx" "How to apply:" "capture-answer asks for How to apply"
 assert_contains "$ctx" "paraphrased" "capture-answer prefers paraphrased evidence (no raw capture)"
@@ -21,7 +23,9 @@ assert_rc 0 "$rc" "capture-prompt exits 0"
 printf '%s' "$out" | jq -e . >/dev/null 2>&1; assert_rc 0 $? "capture-prompt emits valid JSON"
 assert_eq "UserPromptSubmit" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.hookEventName')" "capture-prompt event name"
 ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')
-assert_contains "$ctx" "feedback memory" "capture-prompt nudges a feedback memory"
+assert_contains "$ctx" "plow-pbc/kitchen-agents" "capture-prompt routes generalizable behavior to kitchen-agents"
+assert_contains "$ctx" "\$PERSONAL_RUNBOOK/projects/" "capture-prompt routes personal notes to the personal runbook"
+assert_contains "$ctx" "never to Claude's auto-memory" "capture-prompt keeps notes out of auto-memory"
 assert_contains "$ctx" "paraphrased" "capture-prompt prefers paraphrased evidence (no raw capture)"
 
 # Both scripts executable
