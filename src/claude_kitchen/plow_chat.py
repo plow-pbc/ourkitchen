@@ -712,6 +712,19 @@ def read_credentials(path: Path) -> dict:
     return read_env(path) if "PLOW_AGENT_TOKEN=" in text else {"PLOW_API_BASE": "https://api.plow.co", "PLOW_AGENT_TOKEN": text}
 
 
+def tell_owner(kitchen: str, text: str) -> str:
+    """Send `text` on the kitchen's Plow chat line to its owner, in the line's
+    chat that seats no one else."""
+    credentials = read_credentials(plow_chat_dir(kitchen) / CREDENTIALS)
+    with httpx.Client(base_url=credentials["PLOW_API_BASE"], timeout=30,
+                      headers={"Authorization": f"Bearer {credentials['PLOW_AGENT_TOKEN']}"}) as client:
+        r = client.get("/v1/chats")
+        r.raise_for_status()
+        chat = next(c["uid"] for c in r.json()["data"]
+                    if [p.get("role") for p in c["participants"] if p["relationship"] != "self"] == ["owner"])
+        return sent(client.post(f"/v1/chats/{chat}/messages", json={"body": text}), "message to the owner")
+
+
 async def run_server(kitchen: str):
     directory = plow_chat_dir(kitchen)
     credentials = read_credentials(directory / CREDENTIALS)

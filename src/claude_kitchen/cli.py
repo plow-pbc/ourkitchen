@@ -18,7 +18,7 @@ from claude_kitchen.tmux import (
     PROBE_TIMEOUT, SESSION,
 )
 from claude_kitchen.state import (
-    state_dir, write_status, read_status, update_status, chat_record, read_waits, write_waits,
+    state_dir, plow_chat_dir, write_status, read_status, update_status, chat_record, read_waits, write_waits,
     project_slug, namespaced, wiki_dir, notes_dir, mcp_servers, channel_socket,
     atomic_write_json, state_root, swarm_binary, swarm_credential, swarm_join_prompt, swarm_rooms, sous_first_turn,
     MCP_CONFIG_NAME, LEGACY_MCP_CONFIG_NAME,
@@ -881,6 +881,11 @@ def cmd_hook(args):
     if backend == "claude" and os.environ.get("CLAUDE_CODE_ENTRYPOINT") == "sdk-cli":
         return
 
+    if backend == "claude" and event in ("Stop", "StopFailure"):
+        _login_alert(kitchen, name, event == "StopFailure" and payload.get("error") == "authentication_failed")
+        if event == "StopFailure":
+            return
+
     if name == "sous":
         # Sous hook is otherwise a no-op — prevents echo loops where the sous's
         # own Stop events would feed back through the cook channel push below.
@@ -988,6 +993,28 @@ def cmd_hook(args):
 
     from claude_kitchen.channel import send_to_socket
     send_to_socket(channel_socket(base), push)
+
+
+def _login_alert(kitchen: str, agent: str, expired: bool):
+    """Tell the owner once, on the kitchen's Plow chat line, that a turn died on
+    an expired Claude login; the session itself can no longer speak. Any turn
+    that ends normally re-arms it. A kitchen with no line has no way to say it."""
+    flag = state_dir(kitchen) / "login-expired"
+    if not expired:
+        flag.unlink(missing_ok=True)
+        return
+    if not (plow_chat_dir(kitchen) / "plow-credentials").exists():
+        return
+    try:
+        flag.open("x").close()  # the sous and its cooks share the login: the first to fail tells
+    except FileExistsError:
+        return
+    from claude_kitchen.plow_chat import tell_owner
+    try:
+        tell_owner(kitchen, f"{agent}: my Claude login expired; run /login in my pane")
+    except BaseException:
+        flag.unlink()
+        raise
 
 
 def _agy_summary(payload: dict) -> str:
@@ -1155,6 +1182,7 @@ HOOKS = _PKG_DIR / "hooks"
 # (event, matcher, command, timeout): the Claude hook entries kitchen owns.
 OWNED_HOOKS = (
     ("Stop", None, "kitchen hook", None),
+    ("StopFailure", "authentication_failed", "kitchen hook", None),
     ("UserPromptSubmit", "", "kitchen hook", None),
     ("UserPromptSubmit", None, str(HOOKS / "capture-prompt.sh"), None),
     ("PostToolUse", "AskUserQuestion", str(HOOKS / "capture-answer.sh"), None),

@@ -2207,7 +2207,7 @@ class TestCmdSetupHooks:
         for name in ("capture-prompt.sh", "capture-answer.sh", "roborev-pre-commit-context.py",
                      "roborev-pre-push-gate.py", "roborev-pre-checkout-gate.py"):
             assert commands.count(str(HOOKS / name)) == 1, name
-        assert commands.count("kitchen hook") == 2  # Stop + UserPromptSubmit
+        assert commands.count("kitchen hook") == 3  # Stop, StopFailure + UserPromptSubmit
         push = [h for g in data["hooks"]["PreToolUse"] for h in g["hooks"] if h["command"].endswith("roborev-pre-push-gate.py")]
         assert push == [{"type": "command", "command": str(HOOKS / "roborev-pre-push-gate.py"), "timeout": 660}]
         assert settings.stat().st_mode & 0o777 == 0o640

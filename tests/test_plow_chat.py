@@ -1,8 +1,11 @@
 """Tests for the plow-chat channel server, against a fake Plow API."""
+import argparse
 import asyncio
+import io
 import json
 import re
 import tempfile
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError
@@ -12,6 +15,7 @@ import httpx
 import pytest
 
 from claude_kitchen import plow_chat
+from claude_kitchen.cli import cmd_hook
 from claude_kitchen.plow_chat import CREDENTIALS, Bridge, call, content_type_of, read_credentials
 from tests.fake_plow import SIGNATURE, TOKEN, FakePlow
 
@@ -846,3 +850,40 @@ def test_a_swarm_send_to_the_owner_credits_the_agent_consulted(tmp_path, monkeyp
     assert plow_chat.swarm_send_refusal("boss", agent, send) is None  # no gate, no refusal
     (gate / plow_chat.CONSULT_GATE).write_text("@owner:x\n")
     assert (plow_chat.swarm_send_refusal("boss", agent, send) is not None) == refused
+
+
+def test_an_expired_claude_login_tells_the_owner_once_until_a_turn_ends_normally(monkeypatch, tmp_path):
+    """The session whose login expired can't speak, so its StopFailure hook
+    tells the owner on the line; the sous and a cook failing together tell once."""
+    fake, ready = FakePlow(), threading.Event()
+
+    def serve():
+        async def main():
+            fake.base_url, server = await fake.serve()
+            ready.set()
+            while not server.should_exit:
+                await asyncio.sleep(0.05)
+        asyncio.run(main())
+    threading.Thread(target=serve, daemon=True).start()
+    ready.wait(5)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    line = tmp_path / ".claude-kitchen" / "risotto" / "plow-chat"
+    line.mkdir(parents=True)
+    (line / CREDENTIALS).write_text(f"PLOW_API_BASE={fake.base_url}\nPLOW_AGENT_TOKEN={TOKEN}\n")
+    monkeypatch.setenv("AGENT_KITCHEN", "risotto")
+    monkeypatch.setenv("STATUS_DIR", str(line.parent))
+
+    def turn_ends(agent, event, error=None):
+        monkeypatch.setenv("AGENT_NAME", agent)
+        payload = {"hook_event_name": event, "error": error, "last_assistant_message": "", "session_id": "s"}
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+        monkeypatch.setattr("claude_kitchen.channel.send_to_socket", lambda *_: None)
+        cmd_hook(argparse.Namespace(command="hook"))
+
+    turn_ends("sous", "StopFailure", "rate_limit")
+    turn_ends("sous", "StopFailure", "authentication_failed")
+    turn_ends("eng", "StopFailure", "authentication_failed")
+    assert fake.sent == [(SOLO, "sous: my Claude login expired; run /login in my pane")]
+    turn_ends("sous", "Stop")
+    turn_ends("eng", "StopFailure", "authentication_failed")
+    assert fake.sent[1:] == [(SOLO, "eng: my Claude login expired; run /login in my pane")]
