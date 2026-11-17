@@ -1161,7 +1161,7 @@ OWNED_HOOKS = (
     ("PreToolUse", "Bash", str(HOOKS / "roborev-pre-commit-context.py"), None),
     ("PreToolUse", "Bash", str(HOOKS / "roborev-pre-push-gate.py"), 660),
     ("PreToolUse", "Bash", str(HOOKS / "roborev-pre-checkout-gate.py"), None),
-    ("PreToolUse", "mcp__swarm__send", "kitchen consult-gate", None),
+    ("PreToolUse", "mcp__swarm.*__send", "kitchen consult-gate", None),
 )
 
 
@@ -1468,7 +1468,7 @@ def cmd_restart(args):
         sys.exit(f"The sous of \"{kitchen}\" isn't running; bring it back with `kitchen open --resume`.")
     # The new sous's swarm joins are built now, while the old sous still runs,
     # so a swarm that fails fails this restart rather than leaving no sous.
-    first_turn = f"{FIRST_TURN_ENV}={json.dumps(sous_first_turn(kitchen, resuming=True))}"
+    first_turn = f"{FIRST_TURN_ENV}={json.dumps(sous_first_turn(kitchen))}"
     # Wait out the old sous so open's live-sous check passes; a shell takes the
     # pane back when the new sous exits, as it had before. The relaunched
     # `kitchen open` confirms the dev-channels dialog itself.

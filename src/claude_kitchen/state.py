@@ -91,19 +91,22 @@ def swarm_binary() -> str:
     return os.path.abspath(shutil.which("swarm") or sys.exit("there is no `swarm` on PATH."))
 
 
-def swarm_accounts(kitchen: str) -> list[dict]:
-    """The credentials of the swarm accounts this kitchen acts as: links at
+def swarm_links(kitchen: str) -> list[Path]:
+    """The links to the swarm accounts this kitchen acts as:
     `<state>/swarm/credential.json` (its own account) and `credential-*.json`
-    (one more per other server) to swarm's copies under ~/.swarm/accounts."""
+    (one more per other server), each to swarm's copy under ~/.swarm/accounts."""
     swarm = state_dir(kitchen) / "swarm"
     links = [swarm / "credential.json", *sorted(swarm.glob("credential-*.json"))]
     for link in links:
         if link.exists() and not link.is_symlink():
             sys.exit(f"{link} is a pre-accounts swarm credential: move its account into "
                      "~/.swarm/accounts/<server>/<name>/ and link it back here (see the README).")
-    if not links[0].is_symlink():
-        return []
-    return [json.loads(link.read_text()) for link in links]  # a dangling link fails here, loudly
+    return links if links[0].is_symlink() else []
+
+
+def swarm_accounts(kitchen: str) -> list[dict]:
+    """The credentials of the swarm accounts this kitchen acts as."""
+    return [json.loads(link.read_text()) for link in swarm_links(kitchen)]  # a dangling link fails here, loudly
 
 
 def swarm_account(kitchen: str) -> dict | None:
@@ -115,10 +118,12 @@ def mcp_servers(kitchen: str) -> dict:
     """What a sous loads: its channels, plus swarm once this kitchen has an
     account, which `swarm mcp claude` serves itself through Claude Code's inbox."""
     servers = channel_servers(kitchen)
-    if accounts := swarm_accounts(kitchen):
-        # Bound to one account, swarm refuses the others; unbound, it takes one per server.
-        bound = ["--account", accounts[0]["user_id"]] if len(accounts) == 1 else []
-        servers["swarm"] = {"command": swarm_binary(), "args": ["mcp", "claude", *bound]}
+    # One server per account, bound to it: swarm then receives the account's
+    # saved rooms again in whatever session it starts in. The kitchen's own
+    # account keeps the plain name, so its tools stay `mcp__swarm__*`.
+    for i, account in enumerate(swarm_accounts(kitchen)):
+        name = "swarm" if i == 0 else "swarm-" + re.sub(r"[^A-Za-z0-9_-]", "-", account["user_id"].lstrip("@"))
+        servers[name] = {"command": swarm_binary(), "args": ["mcp", "claude", "--account", account["user_id"]]}
     return servers
 
 
@@ -190,15 +195,20 @@ def swarm_build() -> int:
     return int(re.search(r"\((\d+),", json.loads(out)["version"])[1])
 
 
-def sous_first_turn(kitchen: str, resuming: bool) -> list[str]:
-    """The sous's launch prompt, if it has swarm rooms to join. A swarm that
-    resumes receives them again itself when it is bound to the kitchen's one
-    account, or when the sous resumes the session that saved them, so there
-    the prompt would only spend its context rejoining."""
-    accounts = swarm_accounts(kitchen)
-    if accounts and (resuming or len(accounts) == 1) and swarm_build() >= SWARM_RESUMES:
-        return []
-    joins = [swarm_join_prompt(a["user_id"], rooms) for a in accounts if (rooms := swarm_rooms(a))]
+def sous_first_turn(kitchen: str) -> list[str]:
+    """The sous's launch prompt: the rooms to join of each account swarm won't
+    receive again by itself. A swarm that resumes does so for every account
+    it has saved rooms for (its `receiving.json`), and a rejoin there would
+    only spend the sous's context."""
+    links = swarm_links(kitchen)
+    resumes = bool(links) and swarm_build() >= SWARM_RESUMES
+    joins = []
+    for link in links:
+        if resumes and (link.resolve().parent / "receiving.json").exists():
+            continue
+        account = json.loads(link.read_text())
+        if rooms := swarm_rooms(account):
+            joins.append(swarm_join_prompt(account["user_id"], rooms))
     return [" ".join(joins)] if joins else []
 
 
