@@ -509,11 +509,12 @@ class Bridge:
                     dangerously_skip_attaching_a_priority: bool = False) -> str:
         if not text.strip():
             raise ValueError("reply text is empty; not sent")
+        name = await self.credit(consulted)  # before the unread check, which must be last
         if refusal := await self.held(text, chat, priority=priority, skip=dangerously_skip_attaching_a_priority,
                                       consulted=consulted) \
                 or await self.unread(chat):  # the review is slow; read last
             return refusal
-        return sent(await self.client.post(f"/v1/chats/{chat}/messages", json={"body": credited(text, await self.credit(consulted))}), "reply")
+        return sent(await self.client.post(f"/v1/chats/{chat}/messages", json={"body": credited(text, name)}), "reply")
 
     async def upload(self, chat: str, file: Path) -> str:
         """Declare `file` on `chat` and upload its bytes; returns its attachment uid."""
@@ -541,13 +542,14 @@ class Bridge:
             raise ValueError(f"{len(paths)} files given; a message takes 1 to {MAX_ATTACHMENTS}; nothing sent")
         files = [attachable(path) for path in paths]  # all of them before Plow hears of any
         uids = [await self.upload(chat, file) for file in files]
+        name = await self.credit(consulted)
         if refusal := await self.held(caption or f"(files: {', '.join(file.name for file in files)})", chat,
                                       priority=priority, skip=dangerously_skip_attaching_a_priority,
                                       consulted=consulted) \
                 or await self.unread(chat):  # after the uploads and the review, which can take a while
             return refusal
         return sent(await self.client.post(f"/v1/chats/{chat}/messages", json={
-            "attachment_uids": uids, "body": credited(caption, await self.credit(consulted)),
+            "attachment_uids": uids, "body": credited(caption, name),
         }), "file")
 
     async def start_chat(self, handles: list[str], text: str) -> str:
