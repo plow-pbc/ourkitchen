@@ -182,12 +182,25 @@ def local(user_id: str) -> str:
     return user_id[1:].split(":")[0]
 
 
-CREDIT = re.compile(r"\n— with (\S+)\s*$")  # the credit `credited` writes
+CREDIT = re.compile(r"\n— with (\S+)\s*$")  # the credit an agent ends a Swarm send to the owner with
 
 
-def credited(text: str, consulted: str) -> str:
-    """`text` ending with who it was worked with: `@cedar:server` reads "— with cedar"."""
-    return f"{text}\n\n— with {local(consulted)}" if consulted else text
+def display_name(accounts: list[dict], user_id: str) -> str:
+    """`user_id`'s Swarm display name, from the first of `accounts` whose
+    server knows it, else its localpart."""
+    for account in accounts:
+        try:
+            if name := matrix_get(account, f"/profile/{quote(user_id, safe='')}").get("displayname"):
+                return name
+        except HTTPError as e:
+            if e.code not in (403, 404):  # another server's user, or one it won't show
+                raise
+    return local(user_id)
+
+
+def credited(text: str, name: str) -> str:
+    """`text` ending with who it was worked with."""
+    return f"{text}\n\n— with {name}" if name else text
 
 
 def sending_accounts(kitchen: str, agent: str) -> list[dict]:
@@ -215,7 +228,7 @@ def dm_with(accounts: list[dict], room: str, person: str) -> bool:
 
 def swarm_send_refusal(kitchen: str, agent: str, send: dict) -> str | None:
     """Why `agent`'s Swarm `send` to the owner is refused on a line with
-    `consult-gate`: it must end with the credit `credited` writes, naming an
+    `consult-gate`: it must end with the credit `CREDIT` matches, naming an
     agent other than the owner or the sender; None to let it through."""
     gate = plow_chat_dir(kitchen) / CONSULT_GATE
     if not gate.exists() or send.get("dangerously_skip_attaching_a_priority"):
@@ -278,6 +291,7 @@ class Bridge:
     cursor: Path
     reviewer: callable = ask_reviewer  # async (prompt) -> answer, the pre-send review's model
     consult: tuple = ()  # (this line's Swarm id, the owner's) when `consult-gate` names the owner
+    name_of: callable = local  # (Swarm user id) -> the name a credit shows
     taken: dict = field(init=False)
     burst: list = field(init=False, default_factory=list)  # one speaker's texts not yet handed over
     due: float = 0.0  # loop time the burst closes at
@@ -488,6 +502,9 @@ class Bridge:
         return ("not sent: a text to the head chef names the Swarm agent you consulted first, by user id "
                 "(`consulted`), not yourself or the head chef: work it with them, then send")
 
+    async def credit(self, consulted: str) -> str:
+        return await asyncio.to_thread(self.name_of, consulted) if consulted else ""
+
     async def reply(self, chat: str, text: str, priority: str = "", consulted: str = "",
                     dangerously_skip_attaching_a_priority: bool = False) -> str:
         if not text.strip():
@@ -496,7 +513,7 @@ class Bridge:
                                       consulted=consulted) \
                 or await self.unread(chat):  # the review is slow; read last
             return refusal
-        return sent(await self.client.post(f"/v1/chats/{chat}/messages", json={"body": credited(text, consulted)}), "reply")
+        return sent(await self.client.post(f"/v1/chats/{chat}/messages", json={"body": credited(text, await self.credit(consulted))}), "reply")
 
     async def upload(self, chat: str, file: Path) -> str:
         """Declare `file` on `chat` and upload its bytes; returns its attachment uid."""
@@ -530,7 +547,7 @@ class Bridge:
                 or await self.unread(chat):  # after the uploads and the review, which can take a while
             return refusal
         return sent(await self.client.post(f"/v1/chats/{chat}/messages", json={
-            "attachment_uids": uids, "body": credited(caption, consulted),
+            "attachment_uids": uids, "body": credited(caption, await self.credit(consulted)),
         }), "file")
 
     async def start_chat(self, handles: list[str], text: str) -> str:
@@ -706,7 +723,9 @@ async def run_server(kitchen: str):
             stdio_server() as (read_stream, write_stream):
         bridge = Bridge(client, lambda content, meta: push(write_stream, with_digest(state_dir(kitchen), content), meta), directory / "last_seen.json")
         if (gate := directory / CONSULT_GATE).exists():
-            bridge.consult = (swarm_accounts(kitchen)[0]["user_id"], listed(gate).pop())
+            accounts = swarm_accounts(kitchen)
+            bridge.consult = (accounts[0]["user_id"], listed(gate).pop())
+            bridge.name_of = lambda user_id: display_name(accounts, user_id)
         supervisor = asyncio.create_task(bridge.run())
         try:
             await server.run(read_stream, write_stream, init_options)

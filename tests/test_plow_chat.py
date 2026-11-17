@@ -621,6 +621,31 @@ def test_a_text_to_the_owner_alone_names_the_agent_consulted_first(gate, kwargs,
     run_bridge(scenario)
 
 
+@pytest.mark.parametrize("profiles, credit", [
+    ({"old": None, "hq": "Aspen ⚉ Patrick's front desk"}, "Aspen ⚉ Patrick's front desk"),
+    ({"old": None, "hq": None}, "rmd931i4x5"),
+    ({"old": None, "hq": {}}, "rmd931i4x5"),
+], ids=["named-on-another-server", "unknown-everywhere", "no-display-name"])
+def test_a_credit_shows_the_consulted_agents_swarm_display_name(monkeypatch, profiles, credit):
+    """The credit names the agent as Swarm shows it, from whichever of the
+    line's servers knows it, and by its localpart when none names it."""
+    def profile(account, path):
+        assert path == "/profile/%40rmd931i4x5%3Aplow.co"
+        found = profiles[account["user_id"]]
+        if found is None:
+            raise HTTPError(path, 404, "Profile not found", None, None)
+        return found if isinstance(found, dict) else {"displayname": found}
+    monkeypatch.setattr(plow_chat, "matrix_get", profile)
+
+    async def scenario(fake, bridge, delivered):
+        await fake.inbound("cht_solo", OWNER, "what's the status?")
+        await eventually(lambda: delivered)
+        bridge.name_of = lambda user_id: plow_chat.display_name([{"user_id": "old"}, {"user_id": "hq"}], user_id)
+        assert (await bridge.reply("cht_solo", "merged", consulted="@rmd931i4x5:plow.co")).startswith("sent")
+        assert fake.sent[-1] == ("cht_solo", f"merged\n\n— with {credit}")
+    run_bridge(scenario)
+
+
 def test_start_chat_and_send_file_are_reviewed_too(shot):
     prompts = []
 
@@ -795,7 +820,7 @@ def test_a_reply_that_went_out_reports_sent_even_if_clearing_eyes_fails():
         "cooks-own-dm", "cook-credits-itself", "cook-credits-the-sous"])
 def test_a_swarm_send_to_the_owner_credits_the_agent_consulted(tmp_path, monkeypatch, agent, send, refused):
     """With `consult-gate` set, a Swarm send naming or DMing the owner ends
-    with the credit a plow-chat text carries, naming another agent than the
+    with a "— with <agent>" credit, naming another agent than the
     sender: the sous, or a cook hired with its own account."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     rooms = {"!dmOwner": ["@cedar:x", "@owner:x"], "!dmOther": ["@cedar:x", "@pat:x"], "!dmCook": ["@dev:x", "@owner:x"]}
