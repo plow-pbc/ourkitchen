@@ -405,36 +405,26 @@ def test_swarm_runs_as_the_kitchens_account_and_joins_its_rooms_on_launch(tmp_pa
         mcp_servers("boss")
 
 
-def test_a_kitchen_on_several_servers_runs_one_unbound_swarm_and_joins_every_accounts_rooms(tmp_path, monkeypatch, homeserver):
+@pytest.mark.parametrize("build, several, resuming, joins", [
+    (155, True, True, True),     # an older swarm resumes nothing itself
+    (156, False, False, False),  # bound to the one account, swarm resumes it
+    (156, True, True, False),    # unbound, it resumes the session that saved the rooms
+    (156, True, False, True),    # unbound in a new session, it resumes nothing
+])
+def test_the_sous_joins_every_accounts_rooms_where_swarm_wont_resume_them(tmp_path, monkeypatch, homeserver, build, several, resuming, joins):
     # swarm bound with --account refuses every other account; unbound, it holds one per server.
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("PATH", str(fake_swarm(tmp_path).parent))
-    link = link_account(tmp_path, homeserver)
-    other = tmp_path / ".swarm/accounts/x/other/credential.json"
-    other.parent.mkdir(parents=True)
-    other.write_text(json.dumps({"user_id": "@other:x", "homeserver": homeserver, "access_token": "tok"}))
-    (link.parent / "credential-x.json").symlink_to(other)
-    assert mcp_servers("boss")["swarm"]["args"] == ["mcp", "claude"]
-    [turn] = sous_first_turn("boss", resuming=False)
-    assert f"as account {ACCOUNT} once for each of: !dm, #general:p" in turn
-    assert "as account @other:x once for each of: #general:x." in turn
-
-
-@pytest.mark.parametrize("several, resuming, joins", [
-    (False, False, False),  # bound to the one account, swarm resumes it
-    (True, True, False),    # unbound, it resumes the session that saved the rooms
-    (True, False, True),    # unbound in a new session, it resumes nothing
-])
-def test_a_swarm_that_resumes_rooms_itself_gets_no_join_prompt(tmp_path, monkeypatch, homeserver, several, resuming, joins):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("PATH", str(fake_swarm(tmp_path, build=156).parent))
+    monkeypatch.setenv("PATH", str(fake_swarm(tmp_path, build=build).parent))
     link = link_account(tmp_path, homeserver)
     if several:
         other = tmp_path / ".swarm/accounts/x/other/credential.json"
         other.parent.mkdir(parents=True)
         other.write_text(json.dumps({"user_id": "@other:x", "homeserver": homeserver, "access_token": "tok"}))
         (link.parent / "credential-x.json").symlink_to(other)
-    assert bool(sous_first_turn("boss", resuming=resuming)) == joins
+        assert mcp_servers("boss")["swarm"]["args"] == ["mcp", "claude"]
+    turn = " ".join(sous_first_turn("boss", resuming=resuming))
+    assert (f"as account {ACCOUNT} once for each of: !dm, #general:p" in turn) == joins
+    assert ("as account @other:x once for each of: #general:x." in turn) == joins
 
 
 def test_restart_keeps_a_sous_running_when_swarm_cant_read_its_account(tmp_path, monkeypatch, capsys):
