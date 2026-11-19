@@ -27,7 +27,7 @@ from claude_kitchen.models import max_context_for
 from claude_kitchen.outbound import approve_host, operator_setting
 from claude_kitchen.spawn import (spawn_window, spawn_sous,
                                   check_sous_pid, FIRST_TURN_ENV, CLAUDE_MODELS, CODEX_MODELS,
-                                  SUPERPOWERS_MARKETPLACES)
+                                  SUPERPOWERS_MARKETPLACES, RUNTIME_HOOKS)
 
 _PKG_DIR = Path(__file__).parent
 TC = _PKG_DIR / "tc" / "tc"  # the slot tool kitchen ships; `kitchen setup` links it onto PATH
@@ -369,7 +369,8 @@ def cmd_open(args):
     if args.resume:
         if not resuming:
             sys.exit(f"--resume: no existing kitchen \"{name}\" to resume.")
-        sous_session_id = json.loads(kitchen_file.read_text()).get("sous_session_id")
+        resume_state = json.loads(kitchen_file.read_text())
+        sous_session_id = _sous_session_id(base, resume_state)
         if not sous_session_id:
             sys.exit(
                 f"--resume: no sous session recorded for \"{name}\" yet. "
@@ -538,6 +539,8 @@ def sous_prompt() -> str:
 
 
 def cmd_hire(args):
+    if os.environ.get("KITCHEN_CONTAINER"):
+        sys.exit("kitchen hire controls host tmux; ask the operator to run it on the host")
     kitchen = resolve_kitchen(args.kitchen)
     base = state_dir(kitchen)
     name = args.name
@@ -715,6 +718,8 @@ SKIP_PRIORITY_WARNING = ("WARNING: doing work without attached priorities is a c
 
 
 def cmd_ticket(args):
+    if os.environ.get("KITCHEN_CONTAINER"):
+        sys.exit("kitchen ticket controls host tmux; ask the operator to run it on the host")
     kitchen = resolve_kitchen(args.kitchen)
     base = state_dir(kitchen)
     name = args.cook
@@ -860,7 +865,7 @@ def _reopen_cmd(kitchen: str) -> str:
     `kitchen restart` does: its `kitchen open` argv, resuming its conversation."""
     kj = json.loads((state_dir(kitchen) / "kitchen.json").read_text())
     launch = kj.get("sous_launch") or {}
-    argv = ["kitchen", *launch.get("argv", ["kitchen", "open"])[1:]] + ["--resume"] * bool(kj.get("sous_session_id"))
+    argv = ["kitchen", *launch.get("argv", ["kitchen", "open"])[1:]] + ["--resume"] * bool(_sous_session_id(state_dir(kitchen), kj))
     return f"cd {shlex.quote(launch.get('cwd') or kj.get('worktree') or kj['source'])} && {shlex.join(argv)}"
 
 
@@ -964,7 +969,8 @@ def cmd_hook(args):
             _login_alert(kitchen, name, channel == "line")
         if channel == "swarm":
             _swarm_login_hook(kitchen, raw)
-        _record_pause(base, name, event, payload)
+        if not (name == "sous" and os.environ.get("KITCHEN_CONTAINER")):
+            _record_pause(base, name, event, payload)
         if event == "Stop":
             _warn_weekly_usage(base)
 
@@ -975,9 +981,13 @@ def cmd_hook(args):
         # can find this exact sous after a crash. (Sous is always Claude.)
         if backend == "claude" and event == "Stop":
             sid = payload.get("session_id")
-            kj_file = base / "kitchen.json"
-            if sid and kj_file.exists():
-                kj = json.loads(kj_file.read_text())
+            kj_file = base / ("container-session.json" if os.environ.get("KITCHEN_CONTAINER")
+                              else "kitchen.json")
+            if sid:
+                try:
+                    kj = json.loads(kj_file.read_text())
+                except FileNotFoundError:
+                    kj = {}
                 if kj.get("sous_session_id") != sid:
                     kj["sous_session_id"] = sid
                     kj_file.write_text(json.dumps(kj) + "\n")
@@ -1353,15 +1363,13 @@ def _hook(name: str) -> str:
 
 # (event, matcher, command, timeout): the Claude hook entries kitchen owns.
 OWNED_HOOKS = (
-    ("Stop", None, "kitchen hook", None),
-    ("StopFailure", "authentication_failed|rate_limit", "kitchen hook", None),
-    ("UserPromptSubmit", "", "kitchen hook", None),
+    *RUNTIME_HOOKS[:3],
     ("UserPromptSubmit", None, _hook("capture-prompt.sh"), None),
     ("PostToolUse", "AskUserQuestion", _hook("capture-answer.sh"), None),
     ("PreToolUse", "Bash", _hook("roborev-pre-commit-context.py"), None),
     ("PreToolUse", "Bash", _hook("roborev-pre-push-gate.py"), 660),
     ("PreToolUse", "Bash", _hook("roborev-pre-checkout-gate.py"), None),
-    ("PreToolUse", "mcp__swarm.*__send", "kitchen consult-gate", None),
+    RUNTIME_HOOKS[3],
 )
 
 
@@ -1639,11 +1647,22 @@ def cmd_suspend(args):
 RESTART_DELAY = 3
 
 
+def _sous_session_id(base: Path, kitchen_state: dict) -> str | None:
+    if not kitchen_state.get("sous_container"):
+        return kitchen_state.get("sous_session_id")
+    try:
+        return json.loads((base / "container-session.json").read_text()).get("sous_session_id") or kitchen_state.get("sous_session_id")
+    except (FileNotFoundError, json.JSONDecodeError):
+        return kitchen_state.get("sous_session_id")
+
+
 def cmd_restart(args):
     """Relaunch the sous in its own tmux pane: its `kitchen open` argv plus
     --resume, RESTART_DELAY seconds from now so the caller — usually the sous
     itself — gets this answer back first. Cooks run on the kitchen's own tmux
     server, which this never touches."""
+    if os.environ.get("KITCHEN_CONTAINER"):
+        sys.exit("kitchen restart controls host tmux; ask the operator to run it on the host")
     kitchen = resolve_kitchen(args.kitchen)
     base = state_dir(kitchen)
     kj = json.loads((base / "kitchen.json").read_text())
@@ -1651,7 +1670,7 @@ def cmd_restart(args):
     if not launch or not launch["pane"]:
         sys.exit(f"Kitchen \"{kitchen}\" has no sous pane on record: open it from tmux "
                  f"(`kitchen open --resume`) once, then restart works.")
-    if not kj.get("sous_session_id"):
+    if not _sous_session_id(base, kj):
         sys.exit(f"Kitchen \"{kitchen}\" has no sous session to resume yet.")
     if WINDOWS:
         sys.exit("kitchen restart isn't on Windows yet: exit the sous, then run `kitchen open --resume` in its pane.")
@@ -1682,12 +1701,14 @@ def cmd_restart(args):
 def cmd_close(args):
     kitchen = resolve_kitchen(args.kitchen)
     base = state_dir(kitchen)
+    containerized = False
 
     # Run on-close hook and remove worktree BEFORE killing tmux
     kitchen_file = base / "kitchen.json"
     if kitchen_file.exists():
         try:
             kj = json.loads(kitchen_file.read_text())
+            containerized = bool(kj.get("sous_container"))
             source = Path(kj["source"])
             cwd = Path(kj.get("worktree", kj["source"]))
             if cwd.exists():
@@ -1698,9 +1719,11 @@ def cmd_close(args):
                     remove_worktree(worktree, force=args.force)
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Warning: bad kitchen.json: {e}", file=sys.stderr)
-        kitchen_file.unlink(missing_ok=True)
-
     kill_server(kitchen)
+    if containerized:
+        from claude_kitchen.container import remove
+        remove(kitchen)
+    kitchen_file.unlink(missing_ok=True)
     for cook_file in sorted((base / "cooks").glob("*.json")):
         _archive_codex_thread(base, cook_file.stem)
 
@@ -1708,7 +1731,8 @@ def cmd_close(args):
     sock = channel_socket(base)
     for f in (sock, sock.with_name(sock.name + ".lock")):
         f.unlink(missing_ok=True)
-    for f in (MCP_CONFIG_NAME, LEGACY_MCP_CONFIG_NAME, "sous.pid"):
+    from claude_kitchen.container import MCP_CONFIG_NAME as CONTAINER_MCP_CONFIG_NAME
+    for f in (MCP_CONFIG_NAME, CONTAINER_MCP_CONFIG_NAME, LEGACY_MCP_CONFIG_NAME, "sous.pid"):
         (base / f).unlink(missing_ok=True)
     for sub in ("cooks", "notes", "codex-home"):
         d = base / sub
@@ -1806,6 +1830,7 @@ def main():
         "statusline-segment",
         help="Print the kitchen-state segment for embedding in a statusline",
     )
+    sub.add_parser("statusline-command", help="(internal) Run Kitchen's packaged statusline")
 
     sub.add_parser("roles", help="List available cook roles")
     p_approve = sub.add_parser("approve-host", help="Approve an outside host for a Swarm agent here, as its owner's delegate")
@@ -1866,6 +1891,8 @@ def main():
         cmd_setup(args)
     elif args.command == "statusline-segment":
         cmd_statusline_segment(args)
+    elif args.command == "statusline-command":
+        os.execv("/bin/bash", ["bash", str(_PKG_DIR / "statusline-command.sh")])
     elif args.command == "roles":
         cmd_roles(args)
     elif args.command == "approve-host":

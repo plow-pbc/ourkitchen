@@ -109,10 +109,15 @@ def channel_socket(base: Path) -> Path:
     """The kitchen's channel socket: `<base>/kitchen.sock`, or, when that path
     is too long to bind, one under `<state root>/sockets/` named by a hash of
     the kitchen's name. Every binder and sender goes through here."""
+    if override := os.environ.get("KITCHEN_CHANNEL_DIR"):
+        return Path(override) / "kitchen.sock"
+    digest = hashlib.sha1(base.name.encode()).hexdigest()[:16]
+    if (base / "channel").is_dir():
+        return state_root() / "sockets" / digest / "kitchen.sock"
     path = base / "kitchen.sock"
     if len(str(path).encode()) <= SOCKET_PATH_MAX:
         return path
-    return state_root() / "sockets" / f"{hashlib.sha1(base.name.encode()).hexdigest()[:16]}.sock"
+    return state_root() / "sockets" / f"{digest}.sock"
 
 
 def notes_dir(kitchen: str) -> Path:

@@ -2184,6 +2184,41 @@ class TestSecondOpenIsANoOp:
 
 
 class TestCmdClose:
+    @pytest.mark.parametrize("containerized,expected", [
+        (False, []), (True, [call("risotto")]),
+    ])
+    @patch("claude_kitchen.container.remove")
+    @patch("claude_kitchen.cli.tmux")
+    @patch("claude_kitchen.cli.state_dir")
+    @patch("claude_kitchen.cli.resolve_kitchen", return_value="risotto")
+    def test_close_removes_only_recorded_container(
+            self, mock_rk, mock_state, mock_tmux, mock_remove, tmp_path,
+            containerized, expected):
+        mock_state.return_value = tmp_path
+        (tmp_path / "kitchen.json").write_text(json.dumps({
+            "source": str(tmp_path), "sous_container": containerized,
+        }))
+
+        cmd_close(argparse.Namespace(kitchen="risotto", keep_worktree=False, force=False))
+
+        assert mock_remove.call_args_list == expected
+
+    @patch("claude_kitchen.container.remove", side_effect=RuntimeError("docker unavailable"))
+    @patch("claude_kitchen.cli.tmux")
+    @patch("claude_kitchen.cli.state_dir")
+    @patch("claude_kitchen.cli.resolve_kitchen", return_value="risotto")
+    def test_failed_container_removal_keeps_cleanup_marker(
+            self, mock_rk, mock_state, mock_tmux, mock_remove, tmp_path):
+        mock_state.return_value = tmp_path
+        (tmp_path / "kitchen.json").write_text(json.dumps({
+            "source": str(tmp_path), "sous_container": True,
+        }))
+
+        with pytest.raises(RuntimeError, match="docker unavailable"):
+            cmd_close(argparse.Namespace(kitchen="risotto", keep_worktree=False, force=False))
+
+        assert (tmp_path / "kitchen.json").exists()
+
     @patch("claude_kitchen.cli.tmux")
     @patch("claude_kitchen.cli.state_dir")
     @patch("claude_kitchen.cli.resolve_kitchen", return_value="risotto")

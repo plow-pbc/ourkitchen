@@ -14,6 +14,24 @@ from claude_kitchen.state import MCP_CONFIG_NAME, WINDOWS, channel_flags, pid_al
 
 
 FIRST_TURN_ENV = "KITCHEN_SOUS_FIRST_TURN"
+CONTAINER_CONTROL_PROMPT = ("\n\nThis sous runs inside a container. Do not hire or ticket cooks or restart yourself; "
+                            "host tmux control stays with the operator, so ask them to run those Kitchen commands.")
+RUNTIME_HOOKS = (
+    ("Stop", None, "kitchen hook", None),
+    ("StopFailure", "authentication_failed|rate_limit", "kitchen hook", None),
+    ("UserPromptSubmit", "", "kitchen hook", None),
+    ("PreToolUse", "mcp__swarm.*__send", "kitchen consult-gate", None),
+)
+
+
+def _container_hooks() -> dict:
+    hooks = {}
+    for event, matcher, command, _ in RUNTIME_HOOKS:
+        group = {"hooks": [{"type": "command", "command": command}]}
+        if matcher is not None:
+            group["matcher"] = matcher
+        hooks.setdefault(event, []).append(group)
+    return hooks
 
 
 def check_sous_pid(state_dir: Path):
@@ -107,25 +125,57 @@ def spawn_sous(kitchen: str, state_dir: Path, sous_prompt: str,
     # token would parse as the next flag, not the name — and this name both
     # starts with `[` and carries a space. It's one execvp argv element, so no
     # shell quoting is involved; the space never splits it.
+    from claude_kitchen import container
+    kitchen_file = state_dir / "kitchen.json"
+    kitchen_state = None
+    if kitchen_file.exists():
+        kitchen_state = json.loads(kitchen_file.read_text())
+        was_containerized = bool(kitchen_state.get("sous_container"))
+        if was_containerized:
+            container.remove(kitchen)
+            kitchen_state["sous_container"] = False
+            kitchen_file.write_text(json.dumps(kitchen_state) + "\n")
+    container_config = container.config(project) if project else None
+    if kitchen_state is not None:
+        kitchen_state["sous_container"] = container_config is not None
+        kitchen_file.write_text(json.dumps(kitchen_state) + "\n")
+    mcp_config = container.mcp_config(state_dir) if container_config else state_dir / MCP_CONFIG_NAME
     claude_args = [
         "claude",
         "--dangerously-skip-permissions",
         "--dangerously-load-development-channels", *channel_flags(kitchen),
-        "--mcp-config", str(state_dir / MCP_CONFIG_NAME),
+        "--mcp-config", str(mcp_config),
         f"--remote-control=[sous] {kitchen}",
     ]
     if model:
         claude_args.extend(["--model", model])
-    if not _user_statusline():  # the status line is what receives the plan's usage
+    if container_config:
+        claude_args.extend(["--settings", json.dumps({
+            "hooks": _container_hooks(),
+            "statusLine": {"type": "command", "command": container_config.get(
+                "statusline", "kitchen statusline-command",
+            )},
+        })])
+    elif not _user_statusline():  # the status line is what receives the plan's usage
         claude_args.extend(["--settings", json.dumps({"statusLine": {"type": "command", "command": f"bash {shlex.quote(str(STATUSLINE))}"}})])
     if resume_session_id:
         claude_args.extend(["--resume", resume_session_id])
-    claude_args.extend(["--append-system-prompt", sous_prompt])
+    claude_args.extend([
+        "--append-system-prompt",
+        sous_prompt + (CONTAINER_CONTROL_PROMPT if container_config else ""),
+    ])
     # `kitchen restart` builds the turn while the old sous still runs and hands it over here.
     turn = os.environ.pop(FIRST_TURN_ENV, None)
     claude_args.extend(json.loads(turn) if turn is not None else sous_first_turn(kitchen))
     if project:
         os.chdir(project)
+    if container_config:
+        env = {key: os.environ[key] for key in (
+            "AGENT_KITCHEN", "AGENT_NAME", "STATUS_DIR", "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+            "KITCHEN_WIKI", "KITCHEN_NOTES",
+        ) if key in os.environ}
+        env["HOME"] = str(Path.home())
+        return container.run(kitchen, project, state_dir, container_config, claude_args, env)
     if WINDOWS:
         # Windows has no exec: os.execvp starts claude and exits, and the pane's
         # shell would take the console back from under it. So kitchen waits on
@@ -292,5 +342,3 @@ def _launched(result) -> bool:
     if result.returncode != 0:
         print(f"tmux: {result.stderr.strip()}", file=sys.stderr)
     return result.returncode == 0
-
-
