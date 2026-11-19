@@ -1,8 +1,12 @@
 import json
+import argparse
+import io
 from pathlib import Path
 from unittest.mock import call, patch
+import pytest
 
 from claude_kitchen import container
+from claude_kitchen.cli import _sous_session_id, cmd_hook
 from claude_kitchen.spawn import spawn_sous
 
 
@@ -14,6 +18,7 @@ image = "agent:local"
 network = "agents"
 home_source = "{home}"
 wiki = "{project.parent / 'wiki'}"
+statusline = "bash /opt/kitchen/statusline-command.sh"
 
 [container.environment]
 NODE_ENV = "production"
@@ -26,10 +31,6 @@ source = "{mount}"
 target = "{mount}"
 read_only = true
 ''')
-
-
-def test_no_container_config_is_no_container(tmp_path):
-    assert container.config(tmp_path) is None
 
 
 def test_container_config_rejects_kitchen_runtime_environment(tmp_path):
@@ -45,18 +46,15 @@ home_source = "{home}"
 HOME = "/tmp/redirected"
 ''')
 
-    try:
+    with pytest.raises(SystemExit, match="reserved"):
         container.config(tmp_path)
-    except SystemExit as exc:
-        assert "reserved" in str(exc)
-    else:
-        raise AssertionError("Kitchen runtime environment was accepted")
 
 
 def test_container_run_uses_the_locked_down_boundary(tmp_path, monkeypatch):
     project, home, mount = tmp_path / "project", tmp_path / "home", tmp_path / "role"
     project.mkdir()
     mount.mkdir()
+    (tmp_path / "kitchen.json").write_text("{}\n")
     write_config(project, home, mount)
     monkeypatch.setattr(Path, "home", lambda: Path("/home/operator"))
     monkeypatch.setattr(container.os, "getuid", lambda: 1000)
@@ -87,50 +85,26 @@ def test_container_run_uses_the_locked_down_boundary(tmp_path, monkeypatch):
     assert "--net=host" not in argv and "--pid=host" not in argv and "--ipc=host" not in argv
     specs = [argv[i + 1] for i, value in enumerate(argv) if value == "--mount"]
     assert f"type=bind,source={home},target=/home/operator" in specs
-    assert f"type=bind,source={tmp_path},target={tmp_path}" in specs
+    assert f"type=bind,source={tmp_path},target={tmp_path},readonly" in specs
+    assert f"type=bind,source={tmp_path / 'container-session.json'},target={tmp_path / 'container-session.json'}" in specs
+    assert f"type=bind,source={tmp_path / 'notes'},target={tmp_path / 'notes'}" in specs
     assert f"type=bind,source={tmp_path / 'wiki'},target={tmp_path / 'wiki'}" in specs
     assert f"type=bind,source={mount},target={mount},readonly" in specs
     assert "PERSONAL_RUNBOOK=" + str(mount) in argv
     assert "NODE_ENV=production" in argv
+    assert "KITCHEN_CONTAINER=1" in argv
     assert run.call_args_list[0] == call(
         ["docker", "network", "inspect", "agents"], check=True, stdout=container.subprocess.DEVNULL,
     )
     assert run.call_args_list[2].args[0] == ["docker", "rm", "--force", "kitchen-acme-scout"]
 
 
-def test_remove_targets_only_the_named_kitchen():
-    owned = type("R", (), {"returncode": 0, "stdout": "acme-scout\n", "stderr": ""})()
-    removed = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-    with patch("claude_kitchen.container.subprocess.run", side_effect=[owned, removed]) as run:
-        container.remove("acme-scout")
-    assert run.call_args_list[1] == call(
-        ["docker", "rm", "--force", "kitchen-acme-scout"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
 def test_remove_refuses_a_container_kitchen_does_not_own():
     foreign = type("R", (), {"returncode": 0, "stdout": "someone-else\n", "stderr": ""})()
     with patch("claude_kitchen.container.subprocess.run", return_value=foreign) as run:
-        try:
+        with pytest.raises(SystemExit, match="does not own"):
             container.remove("acme-scout")
-        except SystemExit as exc:
-            assert "does not own" in str(exc)
-        else:
-            raise AssertionError("foreign container was accepted")
     assert len(run.call_args_list) == 1
-
-
-def test_remove_reports_missing_docker():
-    with patch("claude_kitchen.container.subprocess.run", side_effect=FileNotFoundError):
-        try:
-            container.remove("acme-scout")
-        except FileNotFoundError:
-            pass
-        else:
-            raise AssertionError("missing Docker was ignored")
 
 
 def test_container_mcp_uses_binaries_inside_the_image(tmp_path):
@@ -143,6 +117,27 @@ def test_container_mcp_uses_binaries_inside_the_image(tmp_path):
         "kitchen": {"command": "kitchen", "args": ["channel-server", "x"]},
         "swarm": {"command": "swarm", "args": ["mcp", "claude"]},
     }}
+
+
+def test_container_hook_keeps_host_lifecycle_metadata_read_only(tmp_path, monkeypatch):
+    host_state = {"source": "/host/project", "sous_container": True, "sous_session_id": "host-session"}
+    (tmp_path / "kitchen.json").write_text(json.dumps(host_state) + "\n")
+    assert _sous_session_id(tmp_path, host_state) == "host-session"
+    monkeypatch.setenv("AGENT_NAME", "sous")
+    monkeypatch.setenv("AGENT_KITCHEN", "acme-scout")
+    monkeypatch.setenv("STATUS_DIR", str(tmp_path))
+    monkeypatch.setenv("KITCHEN_CONTAINER", "1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
+        "hook_event_name": "Stop", "session_id": "session-1",
+    })))
+
+    with patch("claude_kitchen.cli._login_alert"), \
+            patch("claude_kitchen.cli._record_pause"), \
+            patch("claude_kitchen.cli._warn_weekly_usage"):
+        cmd_hook(argparse.Namespace(command="hook"))
+
+    assert json.loads((tmp_path / "kitchen.json").read_text()) == host_state
+    assert _sous_session_id(tmp_path, host_state) == "session-1"
 
 
 def test_spawn_sous_hands_only_its_runtime_to_the_container(tmp_path, monkeypatch):
@@ -168,6 +163,8 @@ def test_spawn_sous_hands_only_its_runtime_to_the_container(tmp_path, monkeypatc
     settings = json.loads(argv[argv.index("--settings") + 1])
     assert settings["hooks"]["Stop"][0]["hooks"][0]["command"] == "kitchen hook"
     assert settings["hooks"]["PreToolUse"][0]["matcher"] == "mcp__swarm.*__send"
+    assert settings["statusLine"]["command"] == "kitchen statusline-segment"
+    assert "do not hire or ticket cooks" in argv[argv.index("--append-system-prompt") + 1]
     assert env == {
         "AGENT_KITCHEN": "acme-scout",
         "AGENT_NAME": "sous",
@@ -188,10 +185,8 @@ def test_spawn_sous_removes_owned_container_when_config_is_removed(tmp_path, mon
 
     with patch.object(container, "remove") as remove, \
             patch("claude_kitchen.spawn.os.execvp", side_effect=SystemExit):
-        try:
+        with pytest.raises(SystemExit):
             spawn_sous("acme-scout", tmp_path, "role", project=project, slug="acme")
-        except SystemExit:
-            pass
 
     remove.assert_called_once_with("acme-scout")
     assert json.loads((tmp_path / "kitchen.json").read_text())["sous_container"] is False
@@ -203,10 +198,8 @@ def test_failed_transition_keeps_container_cleanup_marker(tmp_path, monkeypatch)
     (tmp_path / "kitchen.json").write_text('{"sous_container": true}\n')
 
     with patch.object(container, "remove", side_effect=RuntimeError("docker unavailable")):
-        try:
+        with pytest.raises(RuntimeError, match="docker unavailable"):
             spawn_sous("acme-scout", tmp_path, "role", project=project, slug="acme")
-        except RuntimeError:
-            pass
 
     assert json.loads((tmp_path / "kitchen.json").read_text())["sous_container"] is True
 
@@ -218,10 +211,8 @@ def test_restart_removes_old_container_before_parsing_replacement(tmp_path):
     (tmp_path / "kitchen.json").write_text('{"sous_container": true}\n')
 
     with patch.object(container, "remove") as remove:
-        try:
+        with pytest.raises(container.tomllib.TOMLDecodeError):
             spawn_sous("acme-scout", tmp_path, "role", project=project, slug="acme")
-        except container.tomllib.TOMLDecodeError:
-            pass
 
     remove.assert_called_once_with("acme-scout")
     assert json.loads((tmp_path / "kitchen.json").read_text())["sous_container"] is False

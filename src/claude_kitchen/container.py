@@ -11,6 +11,7 @@ OWNER_LABEL = "com.srosro.kitchen.name"
 RESERVED_ENV = {
     "HOME", "AGENT_KITCHEN", "AGENT_NAME", "STATUS_DIR",
     "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "KITCHEN_WIKI", "KITCHEN_NOTES",
+    "KITCHEN_CONTAINER",
 }
 
 
@@ -85,9 +86,16 @@ def run(kitchen: str, project: Path, state_dir: Path, cfg: dict,
     )
     remove(kitchen)
 
+    session_file = state_dir / "container-session.json"
+    if not session_file.exists():
+        session_file.write_text("{}\n")
+    notes = state_dir / "notes"
+    notes.mkdir(exist_ok=True)
     mounts = [
         {"source": cfg["home_source"], "target": Path.home()},
-        {"source": state_dir, "target": state_dir},
+        {"source": state_dir, "target": state_dir, "read_only": True},
+        {"source": session_file, "target": session_file},
+        {"source": notes, "target": notes},
     ]
     if "wiki" in cfg:
         mounts.append({"source": cfg["wiki"], "target": cfg["wiki"]})
@@ -104,6 +112,7 @@ def run(kitchen: str, project: Path, state_dir: Path, cfg: dict,
         "--workdir", str(project),
     ]
     container_env = {**cfg["environment"], **env}
+    container_env["KITCHEN_CONTAINER"] = "1"
     if "wiki" in cfg:
         container_env["KITCHEN_WIKI"] = str(cfg["wiki"])
     for key, value in container_env.items():

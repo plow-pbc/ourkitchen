@@ -2184,36 +2184,24 @@ class TestSecondOpenIsANoOp:
 
 
 class TestCmdClose:
+    @pytest.mark.parametrize("containerized,expected", [
+        (False, []), (True, [call("risotto")]),
+    ])
     @patch("claude_kitchen.container.remove")
     @patch("claude_kitchen.cli.tmux")
     @patch("claude_kitchen.cli.state_dir")
     @patch("claude_kitchen.cli.resolve_kitchen", return_value="risotto")
-    def test_host_kitchen_does_not_require_docker(self, mock_rk, mock_state,
-                                                  mock_tmux, mock_remove, tmp_path):
+    def test_close_removes_only_recorded_container(
+            self, mock_rk, mock_state, mock_tmux, mock_remove, tmp_path,
+            containerized, expected):
         mock_state.return_value = tmp_path
-        (tmp_path / "kitchen.json").write_text(json.dumps({"source": str(tmp_path)}))
-
-        cmd_close(argparse.Namespace(kitchen="risotto", keep_worktree=False, force=False))
-
-        mock_remove.assert_not_called()
-
-    @patch("claude_kitchen.container.remove")
-    @patch("claude_kitchen.cli.tmux")
-    @patch("claude_kitchen.cli.state_dir")
-    @patch("claude_kitchen.cli.resolve_kitchen", return_value="risotto")
-    def test_removes_configured_container(self, mock_rk, mock_state, mock_tmux,
-                                          mock_remove, tmp_path):
-        mock_state.return_value = tmp_path
-        project = tmp_path / "project"
-        (project / ".kitchen").mkdir(parents=True)
-        (project / ".kitchen" / "container.toml").write_text("[container]\n")
         (tmp_path / "kitchen.json").write_text(json.dumps({
-            "source": str(project), "sous_container": True,
+            "source": str(tmp_path), "sous_container": containerized,
         }))
 
         cmd_close(argparse.Namespace(kitchen="risotto", keep_worktree=False, force=False))
 
-        mock_remove.assert_called_once_with("risotto")
+        assert mock_remove.call_args_list == expected
 
     @patch("claude_kitchen.container.remove", side_effect=RuntimeError("docker unavailable"))
     @patch("claude_kitchen.cli.tmux")

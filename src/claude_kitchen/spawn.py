@@ -14,6 +14,27 @@ from claude_kitchen.state import MCP_CONFIG_NAME, WINDOWS, channel_flags, pid_al
 
 
 FIRST_TURN_ENV = "KITCHEN_SOUS_FIRST_TURN"
+CONTAINER_CONTROL_PROMPT = (
+    "\n\nThis sous runs inside a container. Host tmux control stays with the operator: "
+    "do not hire or ticket cooks or restart yourself. Ask the operator to run those "
+    "Kitchen commands on the host."
+)
+RUNTIME_HOOKS = (
+    ("Stop", None, "kitchen hook", None),
+    ("StopFailure", "authentication_failed|rate_limit", "kitchen hook", None),
+    ("UserPromptSubmit", "", "kitchen hook", None),
+    ("PreToolUse", "mcp__swarm.*__send", "kitchen consult-gate", None),
+)
+
+
+def _container_hooks() -> dict:
+    hooks = {}
+    for event, matcher, command, _ in RUNTIME_HOOKS:
+        group = {"hooks": [{"type": "command", "command": command}]}
+        if matcher is not None:
+            group["matcher"] = matcher
+        hooks.setdefault(event, []).append(group)
+    return hooks
 
 
 def check_sous_pid(state_dir: Path):
@@ -133,22 +154,19 @@ def spawn_sous(kitchen: str, state_dir: Path, sous_prompt: str,
         claude_args.extend(["--model", model])
     if container_config:
         claude_args.extend(["--settings", json.dumps({
-            "hooks": {
-                "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "kitchen hook"}]}],
-                "Stop": [{"hooks": [{"type": "command", "command": "kitchen hook"}]}],
-                "StopFailure": [{"hooks": [{"type": "command", "command": "kitchen hook"}]}],
-                "PreToolUse": [{
-                    "matcher": "mcp__swarm.*__send",
-                    "hooks": [{"type": "command", "command": "kitchen consult-gate"}],
-                }],
-            },
-            "statusLine": {"type": "command", "command": "kitchen statusline-segment"},
+            "hooks": _container_hooks(),
+            "statusLine": {"type": "command", "command": container_config.get(
+                "statusline", "kitchen statusline-segment",
+            )},
         })])
     elif not _user_statusline():  # the status line is what receives the plan's usage
         claude_args.extend(["--settings", json.dumps({"statusLine": {"type": "command", "command": f"bash {shlex.quote(str(STATUSLINE))}"}})])
     if resume_session_id:
         claude_args.extend(["--resume", resume_session_id])
-    claude_args.extend(["--append-system-prompt", sous_prompt])
+    claude_args.extend([
+        "--append-system-prompt",
+        sous_prompt + (CONTAINER_CONTROL_PROMPT if container_config else ""),
+    ])
     # `kitchen restart` builds the turn while the old sous still runs and hands it over here.
     turn = os.environ.pop(FIRST_TURN_ENV, None)
     claude_args.extend(json.loads(turn) if turn is not None else sous_first_turn(kitchen))
