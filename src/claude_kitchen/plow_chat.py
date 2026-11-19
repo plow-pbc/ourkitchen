@@ -20,6 +20,7 @@ import re
 import sys
 import uuid
 from dataclasses import dataclass, field
+from functools import cache
 from datetime import date, datetime, timedelta
 from itertools import takewhile
 from pathlib import Path
@@ -212,9 +213,9 @@ def sending_accounts(kitchen: str, agent: str) -> list[dict]:
     return swarm_accounts(kitchen)
 
 
-def dm_with(accounts: list[dict], room: str, person: str) -> bool:
-    """Whether `room`, by its `!…` id, is a DM between `person` and one of
-    `accounts`; False when none of them is in it."""
+def dm_partner(accounts: list[dict], room: str) -> str:
+    """The other member of `room`, by its `!…` id, when it is a DM with one of
+    `accounts`; "" when it isn't, or none of them is in it."""
     for account in accounts:
         try:
             members = matrix_get(account, f"/rooms/{quote(room, safe='')}/joined_members")["joined"]
@@ -222,8 +223,9 @@ def dm_with(accounts: list[dict], room: str, person: str) -> bool:
             if e.code != 403:  # anything but "not in this room" stops the send
                 raise
             continue
-        return set(members) == {account["user_id"], person}
-    return False
+        others = set(members) - {account["user_id"]}
+        return others.pop() if len(members) == 2 and len(others) == 1 else ""
+    return ""
 
 
 def strings(x) -> list[str]:
@@ -246,13 +248,13 @@ def lines_back(path: str, block: int = 1 << 20):
         yield head
 
 
-def worked_with(transcript: str, name: str, text: str, exclude: set[str]) -> bool:
+def worked_with(transcript: str, name: str, text: str, accounts: list[dict], owner: str) -> bool:
     """Whether the session `transcript` records, in the last CONSULT_HOURS,
     sent a Swarm message to `name` other than `text` that wasn't refused, or
     was sent one by it.
     `name` is a user id's localpart, or the first word of a display name a
-    message the session read in that time shows for it; ids in `exclude`
-    never count."""
+    message the session read in that time, or a DM partner's profile, shows
+    for it; the owner and `accounts` never count."""
     since, recent = datetime.now().astimezone() - timedelta(hours=CONSULT_HOURS), []
     for line in lines_back(transcript):
         e = json.loads(line) if line.strip() else {}
@@ -263,7 +265,9 @@ def worked_with(transcript: str, name: str, text: str, exclude: set[str]) -> boo
     name = name.casefold()
     ids = {i for e in recent if e["type"] != "assistant" for t in strings(e)  # what it was shown, not what it wrote
            for i, shown in TAG.findall(t) if shown.casefold().split()[:1] == [name]}
+    exclude = {owner, *(a["user_id"] for a in accounts)}
     named = lambda user_id: user_id not in exclude and (user_id in ids or local(user_id).casefold() == name)
+    partner = cache(lambda room: (p := dm_partner(accounts, room)) and (named(p) or display_name(accounts, p).casefold().split()[:1] == [name]))
     refused = {b.get("tool_use_id") for e in recent if e["type"] == "user" for b in e["message"].get("content") or ()
                if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("is_error")}
     for e in recent:
@@ -272,7 +276,8 @@ def worked_with(transcript: str, name: str, text: str, exclude: set[str]) -> boo
         if e["type"] == "assistant" and any(
                 b.get("type") == "tool_use" and re.fullmatch(r"mcp__swarm.*__send", b["name"])
                 and b["id"] not in refused and b["input"].get("text") != text
-                and any(map(named, [b["input"].get("room", ""), *b["input"].get("mentions", [])])) for b in blocks):
+                and (any(map(named, [b["input"].get("room", ""), *b["input"].get("mentions", [])]))
+                     or b["input"].get("room", "").startswith("!") and partner(b["input"]["room"])) for b in blocks):
             return True  # it sent them one
         inbound = [b["text"] for b in blocks if b.get("type") == "text"] if e["type"] == "user" else \
             strings(e.get("attachment")) if e["type"] == "attachment" else []
@@ -291,9 +296,9 @@ def swarm_send_refusal(kitchen: str, agent: str, send: dict, transcript: str = "
     if not gate.exists() or send.get("dangerously_skip_attaching_a_priority") or not credit or credit[1].casefold() == "none":
         return None
     owner, room, accounts = listed(gate).pop(), send.get("room", ""), sending_accounts(kitchen, agent)
-    if owner not in (room, *(send.get("mentions") or ())) and not (room.startswith("!") and dm_with(accounts, room, owner)):
+    if owner not in (room, *(send.get("mentions") or ())) and not (room.startswith("!") and dm_partner(accounts, room) == owner):
         return None
-    if transcript and worked_with(transcript, credit[1], send["text"], {owner, *(a["user_id"] for a in accounts)}):
+    if transcript and worked_with(transcript, credit[1], send["text"], accounts, owner):
         return None
     return (f"not sent: this session hasn't worked with \"{credit[1]}\" in the last {CONSULT_HOURS} hours: "
             "consult them first, or end with \"— with none\"")
