@@ -390,3 +390,4 @@ Kitchen was inspired by two projects we admired and learned from. We re-implemen
 
 - **[firstmate](https://github.com/kunchenguid/firstmate)** — we studied its tmux send/verify approach (verified-submit, prompt-suggestion/ghost-text suppression, busy-footer detection) and re-implemented those ideas ourselves.
 - **[mypeople](https://github.com/plow-pbc/mypeople)** — general inspiration for orchestrating multiple Claude Code agents through a single channel server.
+<!-- leak-check proof: ~/Hacking -->
