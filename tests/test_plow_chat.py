@@ -752,7 +752,7 @@ def test_a_text_landing_while_the_reviewer_thinks_stops_the_send():
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with Aspen"}, False),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with quill"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with maple"}, False),
-    ("sous", {"room": "@owner:x", "text": "merged\n\n— with Sam"}, True),
+    ("sous", {"room": "@owner:x", "text": "merged\n\n— with Olive"}, True),
 ], ids=["not-to-the-owner", "no-credit", "credits-none", "sent-it-one", "it-replied", "only-hours-ago", "never-worked-with",
         "this-send-isnt-a-consult", "a-refused-send-isnt-either", "credits-itself", "credits-the-owner", "credits-the-owner-capitalized", "an-alias-it-wrote-itself", "skip-flag", "dm-by-room-id",
         "dm-by-room-id-consulted", "someone-elses-dm", "a-room-it-isnt-in", "cook-credits-itself", "cook-credits-the-sous",
@@ -790,11 +790,11 @@ def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, mon
     ]) + "\n")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     rooms = {"!dmOwner": ["@cedar:x", "@owner:x"], "!dmOther": ["@cedar:x", "@pat:x"], "!dmCook": ["@dev:x", "@owner:x"],
-             "!dmAspen": ["@cedar:x", "@aspen:x"], "!group": ["@cedar:x", "@pat:x", "@quill:x"]}
+             "!dmAspen": ["@cedar:x", "@r7q2k9:x"], "!group": ["@cedar:x", "@pat:x", "@quill:x"]}
 
     def joined(account, path):
         if path.startswith("/profile/"):
-            return {"displayname": {"/profile/%40aspen%3Ax": "Aspen ⚉ the builder", "/profile/%40owner%3Ax": "Sam"}.get(path, "")}
+            return {"displayname": {"/profile/%40r7q2k9%3Ax": "Aspen ⚉ the builder", "/profile/%40owner%3Ax": "Olive"}.get(path, "")}
         room = unquote(path.split("/")[2])
         if room not in rooms:
             raise HTTPError(path, 403, "not in the room", None, None)
