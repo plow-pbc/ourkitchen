@@ -246,11 +246,12 @@ def lines_back(path: str, block: int = 1 << 20):
         yield head
 
 
-def worked_with(transcript: str, name: str, text: str) -> bool:
+def worked_with(transcript: str, name: str, text: str, exclude: set[str]) -> bool:
     """Whether the session `transcript` records, in the last CONSULT_HOURS,
     sent a Swarm message to `name` other than `text`, or was sent one by it.
     `name` is a user id's localpart, or the first word of a display name a
-    message the session read in that time shows for it."""
+    message the session read in that time shows for it; ids in `exclude`
+    never count."""
     since, recent = datetime.now().astimezone() - timedelta(hours=CONSULT_HOURS), []
     for line in lines_back(transcript):
         e = json.loads(line) if line.strip() else {}
@@ -258,9 +259,10 @@ def worked_with(transcript: str, name: str, text: str) -> bool:
             if datetime.fromisoformat(e["timestamp"]) < since:
                 break
             recent.append(e)
-    ids = {i for e in recent for t in strings(e) for i, shown in TAG.findall(t)
-           if shown.casefold().split()[:1] == [name.casefold()]}
-    named = lambda user_id: user_id in ids or local(user_id).casefold() == name.casefold()
+    name = name.casefold()
+    ids = {i for e in recent if e["type"] != "assistant" for t in strings(e)  # what it was shown, not what it wrote
+           for i, shown in TAG.findall(t) if shown.casefold().split()[:1] == [name]}
+    named = lambda user_id: user_id not in exclude and (user_id in ids or local(user_id).casefold() == name)
     for e in recent:
         content = e.get("message", {}).get("content")
         blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content or []
@@ -282,13 +284,12 @@ def swarm_send_refusal(kitchen: str, agent: str, send: dict, transcript: str = "
     with lately; no credit, or "— with none", goes through. None to let it through."""
     gate = plow_chat_dir(kitchen) / CONSULT_GATE
     credit = CREDIT.search(send.get("text", ""))
-    if not gate.exists() or send.get("dangerously_skip_attaching_a_priority") or not credit or credit[1] == "none":
+    if not gate.exists() or send.get("dangerously_skip_attaching_a_priority") or not credit or credit[1].casefold() == "none":
         return None
     owner, room, accounts = listed(gate).pop(), send.get("room", ""), sending_accounts(kitchen, agent)
     if owner not in (room, *(send.get("mentions") or ())) and not (room.startswith("!") and dm_with(accounts, room, owner)):
         return None
-    if (credit[1] not in {local(owner), *(local(a["user_id"]) for a in accounts)}
-            and transcript and worked_with(transcript, credit[1], send["text"])):
+    if transcript and worked_with(transcript, credit[1], send["text"], {owner, *(a["user_id"] for a in accounts)}):
         return None
     return (f"not sent: this session hasn't worked with \"{credit[1]}\" in the last {CONSULT_HOURS} hours: "
             "consult them first, or end with \"— with none\"")

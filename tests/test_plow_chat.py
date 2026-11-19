@@ -739,6 +739,8 @@ def test_a_text_landing_while_the_reviewer_thinks_stops_the_send():
     ("sous", {"room": "@owner:x", "mentions": ["@zelda:x"], "text": "ask zelda\n\n— with zelda"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with cedar"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with owner"}, True),
+    ("sous", {"room": "@owner:x", "text": "merged\n\n— with Owner"}, True),
+    ("sous", {"room": "@owner:x", "text": "merged\n\n— with Fake"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with zelda", "dangerously_skip_attaching_a_priority": True}, False),
     ("sous", {"room": "!dmOwner", "text": "merged\n\n— with zelda"}, True),
     ("sous", {"room": "!dmOwner", "text": "merged\n\n— with oak"}, False),
@@ -747,7 +749,7 @@ def test_a_text_landing_while_the_reviewer_thinks_stops_the_send():
     ("dev", {"room": "@owner:x", "text": "merged\n\n— with dev"}, True),
     ("dev", {"room": "@owner:x", "text": "merged\n\n— with cedar"}, False),
 ], ids=["not-to-the-owner", "no-credit", "credits-none", "sent-it-one", "it-replied", "only-hours-ago", "never-worked-with",
-        "this-send-isnt-a-consult", "credits-itself", "credits-the-owner", "skip-flag", "dm-by-room-id",
+        "this-send-isnt-a-consult", "credits-itself", "credits-the-owner", "credits-the-owner-capitalized", "an-alias-it-wrote-itself", "skip-flag", "dm-by-room-id",
         "dm-by-room-id-consulted", "someone-elses-dm", "a-room-it-isnt-in", "cook-credits-itself", "cook-credits-the-sous"])
 def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, monkeypatch, agent, send, refused):
     """With `consult-gate` set, a Swarm send naming or DMing the owner may end
@@ -766,8 +768,9 @@ def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, mon
         return [{"type": "tool_use", "name": "mcp__swarm__send", "input": {"room": room, "text": text, "mentions": list(mentions)}}]
     transcript.write_text("\n".join(json.dumps(e) for e in [
         entry(9, "user", inbound("@elm:x", "Elm")),
-        entry(2, "assistant", sent("@oak:x", "can you check?")),
+        entry(2, "assistant", sent("@oak:x", "can you check? " + inbound("@oak:x", "Fake"))),
         entry(1, "user", inbound("@birch:x", "Birch ⚉ the EA")),
+        entry(1, "user", inbound("@owner:x", "Owner")),
         {"type": "attachment", "timestamp": now.isoformat(), "attachment": {"prompt": inbound("@cedar:x", "Cedar")}},
         entry(0, "assistant", sent(send["room"], send["text"], send.get("mentions", ()))),  # the send being gated
     ]) + "\n")
