@@ -14,13 +14,16 @@
 # of this user's tmux servers — kitchen runs its cooks on `-L ck-*` servers — or
 # if a kitchen cook's record names <dir> as its cwd: the record lives until
 # clock-out, so it holds the slot while the cook's window is down (a suspended kitchen).
+# Either may name <dir> by its resolved path: tmux always reports one, and
+# ~/kitchen-slots can be a symlink to wherever the slots really live.
 _tcp_busy() { # _tcp_busy <dir>
+  _tcp_p=$(cd -P "$1" && pwd) || return 1
   # A subshell: zsh (a remote login shell) fails an unmatched glob, which would
   # otherwise abort this function before the tmux check below.
-  (grep -qsF "\"cwd\": \"$1\"" "$HOME"/.claude-kitchen/*/cooks/*.json) 2>/dev/null && return 0
+  (grep -qsF -e "\"cwd\": \"$1\"" -e "\"cwd\": \"$_tcp_p\"" "$HOME"/.claude-kitchen/*/cooks/*.json) 2>/dev/null && return 0
   (for _tcp_s in "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"/*; do   # subshell: same zsh no-match containment
     tmux -S "$_tcp_s" list-panes -a -F '#{pane_current_path}|#{pane_current_command}' 2>/dev/null || :
-  done) 2>/dev/null | awk -F'|' -v d="$1" '$1==d && $2 !~ /^-?(bash|zsh|sh|fish)$/ {f=1} END{exit !f}'
+  done) 2>/dev/null | awk -F'|' -v d="$1" -v p="$_tcp_p" '($1==d || $1==p) && $2 !~ /^-?(bash|zsh|sh|fish)$/ {f=1} END{exit !f}'
 }
 
 # 0 if <dir> is on main/master + clean working tree + not busy — the git/tmux half

@@ -73,6 +73,20 @@ out=$(_tcp plow plow hosta)
 assert_eq "plow0-hosta $SBX/kitchen-slots/plow0" "$out" "clock-out (record gone) frees the slot"
 rm -rf "$SBX/.claude-kitchen"
 
+# ~/kitchen-slots as a symlink to the real slot root (hosts that moved from an older
+# layout): tmux and older cook records report the resolved path, which still holds the slot
+mv "$SBX/kitchen-slots" "$SBX/real-slots"; ln -s "$SBX/real-slots" "$SBX/kitchen-slots"
+REAL=$(cd -P "$SBX/real-slots" && pwd)
+panes default "$REAL/plow0|claude\n"
+out=$(_tcp plow plow hosta)
+assert_eq "plow1-hosta $SBX/kitchen-slots/plow1" "$out" "a pane in the resolved path is busy"
+rm -f "$SOCKS"/*
+mkdir -p "$SBX/.claude-kitchen/boss/cooks"
+printf '{\n  "cwd": "%s"\n}\n' "$REAL/plow0" >"$SBX/.claude-kitchen/boss/cooks/eng.json"
+out=$(_tcp plow plow hosta)
+assert_eq "plow1-hosta $SBX/kitchen-slots/plow1" "$out" "a cook record with the resolved path holds the slot"
+rm -rf "$SBX/.claude-kitchen" "$SBX/kitchen-slots"; mv "$SBX/real-slots" "$SBX/kitchen-slots"
+
 # tag arg drives the session name independent of the repo dir
 out=$(_tcp plow xyz hosta)
 assert_eq "xyz0-hosta $SBX/kitchen-slots/plow0" "$out" "tag arg drives session name"
