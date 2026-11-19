@@ -803,10 +803,9 @@ def cmd_approve_host(args):
     print(json.dumps(approve_host(args.account, args.host, customers, operator_setting(env, "APPROVER_SENDER").split()[0], home)))
 
 
-def cmd_brigade(kitchen: str = None, every: bool = False):
-    """Each live kitchen and its cooks; with `every` (kitchen ls), each running
-    one by its attach command, alone on its line to copy, and the stopped ones too."""
-    kitchens = list_kitchens(live=not every)
+def cmd_brigade(kitchen: str = None):
+    """Each live kitchen and its cooks."""
+    kitchens = list_kitchens()
     if kitchen:
         kitchens = [k for k in kitchens if k == kitchen]
 
@@ -815,18 +814,12 @@ def cmd_brigade(kitchen: str = None, every: bool = False):
         return
 
     for name in kitchens:
-        if every:
-            up = _attach_argv(name)
-            print(f"kitchen attach {name}" if up else f"{name}  (stopped)\n  {_reopen_cmd(name)}")
-            if not up or not has_session(name, timeout=PROBE_TIMEOUT):
-                continue  # no cooks' server (stopped, or suspended while its sous runs on)
         base = state_dir(name)
         # The sous has no window; it shows once its status file exists (a usage-limit pause).
         windows = ["sous"] * (base / "cooks" / "sous.json").exists() + list_windows(name)
 
-        if not every:
-            week = _weekly_usage()
-            print(f"kitchen: {name}" + (f"  (Claude week {week['used_percentage']:.0f}%)" if week else ""))
+        week = _weekly_usage()
+        print(f"kitchen: {name}" + (f"  (Claude week {week['used_percentage']:.0f}%)" if week else ""))
 
         # One row per cook: <name>  <status>  <ctx>. Name column padded to
         # the longest name in this kitchen's listing; status padded to a
@@ -842,13 +835,18 @@ def cmd_brigade(kitchen: str = None, every: bool = False):
             print(f"  {win:<{name_w}}  {s:<7}  {ctx}{resets}")
 
 
-def _attach_argv(kitchen: str) -> list[str] | None:
-    """The tmux command that opens a kitchen, or None when its sous isn't running (a
-    cooks' server it left behind is no live kitchen): the pane its sous runs in, when
-    it runs in one (an agent installed into a shared tmux session), else the kitchen's
-    own server, where its cooks are. One answer for `kitchen ls` and `kitchen attach`."""
+def _sous_alive(kitchen: str) -> bool:
+    """A kitchen runs while its sous does (a cooks' server it left behind is no live kitchen)."""
     pid = state_dir(kitchen) / "sous.pid"
-    if not (pid.exists() and pid_alive(int(pid.read_text()))):
+    return pid.exists() and pid_alive(int(pid.read_text()))
+
+
+def _attach_argv(kitchen: str) -> list[str] | None:
+    """The tmux command that opens a running kitchen: the pane its sous runs in, when
+    it runs in one (an agent installed into a shared tmux session), else the kitchen's
+    own server, where its cooks are; None when there is neither. One answer for
+    `kitchen ls` and `kitchen attach`."""
+    if not _sous_alive(kitchen):
         return None
     launch = json.loads((state_dir(kitchen) / "kitchen.json").read_text()).get("sous_launch") or {}
     if launch.get("pane") and subprocess.run(
@@ -860,23 +858,62 @@ def _attach_argv(kitchen: str) -> list[str] | None:
     return None
 
 
+def _folder(kitchen: str) -> str:
+    """The folder a kitchen's sous runs in: its worktree, else its project."""
+    kj = json.loads((state_dir(kitchen) / "kitchen.json").read_text())
+    return kj.get("worktree") or kj["source"]
+
+
 def _reopen_cmd(kitchen: str) -> str:
     """The line that starts a stopped kitchen's sous again where it last ran, as
     `kitchen restart` does: its `kitchen open` argv, resuming its conversation."""
     kj = json.loads((state_dir(kitchen) / "kitchen.json").read_text())
     launch = kj.get("sous_launch") or {}
     argv = ["kitchen", *launch.get("argv", ["kitchen", "open"])[1:]] + ["--resume"] * bool(_sous_session_id(state_dir(kitchen), kj))
-    return f"cd {shlex.quote(launch.get('cwd') or kj.get('worktree') or kj['source'])} && {shlex.join(argv)}"
+    return f"cd {shlex.quote(launch.get('cwd') or _folder(kitchen))} && {shlex.join(argv)}"
+
+
+def _ls_names() -> dict[str, tuple[str, Path]]:
+    """Every kitchen here by the name `kitchen ls` gives it, with its folder: the
+    folder's own name, with as many parent folders as it takes to tell it from
+    another kitchen's (hq/cos, acme/cos). A kitchen's real name spells out its
+    whole path when it was opened in a plain folder (users-you-plow-hq-cos-cos)."""
+    folders = {k: Path(_folder(k)) for k in list_kitchens(live=False)}
+
+    def name(kitchen: str, f: Path) -> str:
+        others = {k: g for k, g in folders.items() if k != kitchen}
+        for n in range(1, len(f.parts)):  # never another kitchen's real name, which attach takes too
+            if (short := str(Path(*f.parts[-n:]))) not in others and all(g.parts[-n:] != f.parts[-n:] for g in others.values()):
+                return short
+        return kitchen  # its folder is another kitchen's too
+    return {name(k, f): (k, f) for k, f in folders.items()}
+
+
+def cmd_ls(commands: bool = False):
+    """One line per kitchen here: its name, running or stopped, and its folder;
+    with `commands`, the command that opens it under each."""
+    names = _ls_names()
+    if not names:
+        print("No kitchens here.")
+        return
+    width = max(map(len, names))
+    for name, (kitchen, folder) in names.items():
+        running = _sous_alive(kitchen)
+        shown = Path("~", folder.relative_to(Path.home())) if folder.is_relative_to(Path.home()) else folder
+        print(f"{name:<{width}}  {'running' if running else 'stopped'}  {shown}")
+        if commands:  # a sous opened in a plain terminal, with no cooks' server, has nothing to attach to
+            print(f"  {shlex.join(['kitchen', 'attach', name]) if _attach_argv(kitchen) else 'in the terminal it was opened in' if running else _reopen_cmd(kitchen)}")
 
 
 def cmd_attach(args):
     """This terminal onto a kitchen, where _attach_argv says it is."""
-    kitchen = resolve_kitchen(args.kitchen)
+    kitchen = _ls_names().get(args.kitchen, (None,))[0] or resolve_kitchen(args.kitchen)
     if not (state_dir(kitchen) / "kitchen.json").exists():
         sys.exit(f"No kitchen \"{kitchen}\" here: `kitchen ls` lists them.")
     argv = _attach_argv(kitchen)
     if not argv:
-        sys.exit(f"Kitchen \"{kitchen}\" is stopped. Reopen it with:\n  {_reopen_cmd(kitchen)}")
+        sys.exit(f"Kitchen \"{kitchen}\" runs in the terminal it was opened in." if _sous_alive(kitchen) else
+                 f"Kitchen \"{kitchen}\" is stopped. Reopen it with:\n  {_reopen_cmd(kitchen)}")
     os.execvp(TMUX, argv)
 
 
@@ -1793,7 +1830,8 @@ def main():
 
     p_brigade = sub.add_parser("brigade", help="Show kitchen status")
     p_brigade.add_argument("kitchen", nargs="?", help="Kitchen name (omit for all)")
-    sub.add_parser("ls", help="List every kitchen here, each running one by the command that opens it (kitchen attach <name>)")
+    p_ls = sub.add_parser("ls", help="List every kitchen here: its name, running or stopped, and its folder")
+    p_ls.add_argument("--commands", action="store_true", help="Also print the command that opens each")
     p_attach = sub.add_parser("attach", help="Open a kitchen's agent in this terminal (leave it running: Ctrl-b d)")
     p_attach.add_argument("kitchen", nargs="?", help="Kitchen name, as `kitchen ls` prints it")
 
@@ -1874,7 +1912,7 @@ def main():
     elif args.command == "brigade":
         cmd_brigade(kitchen=args.kitchen)
     elif args.command == "ls":
-        cmd_brigade(every=True)
+        cmd_ls(args.commands)
     elif args.command == "attach":
         cmd_attach(args)
     elif args.command == "clock-out":

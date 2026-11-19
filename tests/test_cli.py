@@ -2897,32 +2897,80 @@ def _kitchen_here(name, sous=None, **kj):
         (d / "sous.pid").write_text(str(sous))
 
 
+def _ls(monkeypatch, capsys, *args):
+    monkeypatch.setattr(sys, "argv", ["kitchen", "ls", *args])
+    main()
+    return capsys.readouterr().out.splitlines()
+
+
 def test_ls_marks_a_kitchen_whose_sous_exited_stopped_with_the_command_that_reopens_it(monkeypatch, capsys):
     """Its cooks' server outlives a sous that ran in a terminal since closed: attaching there
-    opens an empty session, so ls marks it stopped and prints how to reopen it where it ran."""
+    opens an empty session, so ls marks it stopped, and on ask prints how to reopen it where it ran."""
     gone = subprocess.Popen(["true"])
     gone.wait()
-    _kitchen_here("my-kitchen", sous=gone.pid, source="/home/you/plow/my-kitchen", sous_session_id="s1",
-                  sous_launch={"argv": ["/home/you/.local/bin/kitchen", "open"], "cwd": "/home/you/plow/my-kitchen",
+    _kitchen_here("my-kitchen", sous=gone.pid, source="/srv/plow/my-kitchen", sous_session_id="s1",
+                  sous_launch={"argv": ["/srv/.local/bin/kitchen", "open"], "cwd": "/srv/plow/my-kitchen",
                                "socket": "", "pane": None})
-    monkeypatch.setattr(sys, "argv", ["kitchen", "ls"])
-    with patch("claude_kitchen.cli.has_session", return_value=True), \
-            patch("claude_kitchen.cli.list_windows", return_value=[]):
-        main()
-    assert capsys.readouterr().out.splitlines() == [
-        "my-kitchen  (stopped)", "  cd /home/you/plow/my-kitchen && kitchen open --resume"]
+    with patch("claude_kitchen.cli.has_session", return_value=True):
+        assert _ls(monkeypatch, capsys) == ["my-kitchen  stopped  /srv/plow/my-kitchen"]
+        assert _ls(monkeypatch, capsys, "--commands") == [
+            "my-kitchen  stopped  /srv/plow/my-kitchen", "  cd /srv/plow/my-kitchen && kitchen open --resume"]
 
 
-def test_ls_prints_each_running_kitchens_attach_command_to_copy_and_the_stopped_ones(monkeypatch, capsys):
-    _kitchen_here("acme-cos", source="/home/you/plow/acme/cos")
-    _kitchen_here("my-kitchen", sous=os.getpid())
-    monkeypatch.setattr(sys, "argv", ["kitchen", "ls"])
-    with patch("claude_kitchen.cli.has_session", side_effect=lambda k, timeout=None: k == "my-kitchen"), \
-            patch("claude_kitchen.cli.list_windows", return_value=[]), \
-            patch("claude_kitchen.cli._weekly_usage", return_value=None):
-        main()
-    assert capsys.readouterr().out.splitlines() == [
-        "acme-cos  (stopped)", "  cd /home/you/plow/acme/cos && kitchen open", "kitchen attach my-kitchen"]
+def test_ls_is_one_line_per_kitchen_named_by_its_folder_and_attach_takes_that_name(monkeypatch, capsys):
+    """A kitchen opened in a plain folder is named by the whole path (users-you-plow-hq-cos-cos):
+    ls names it by its folder instead, with the parent folders it takes to tell two `cos` apart,
+    and `kitchen attach` opens it by that name."""
+    home = Path.home()
+    _kitchen_here("users-you-plow-acme-cos-cos", source=f"{home}/Plow/acme/cos")
+    _kitchen_here("users-you-plow-hq-cos-cos", sous=os.getpid(), source=f"{home}/Plow/hq/cos")
+    _kitchen_here("plow-fix", source="/srv/plow", worktree="/srv/plow-fix",  # `kitchen open plow-fix` in /srv/plow
+                  sous_launch={"argv": ["/srv/bin/kitchen", "open", "plow-fix"], "cwd": "/srv/plow"})
+    running = lambda k, timeout=None: k == "users-you-plow-hq-cos-cos"
+    with patch("claude_kitchen.cli.has_session", side_effect=running):
+        assert _ls(monkeypatch, capsys) == [
+            "plow-fix  stopped  /srv/plow-fix",
+            "acme/cos  stopped  ~/Plow/acme/cos",
+            "hq/cos    running  ~/Plow/hq/cos"]
+        assert _ls(monkeypatch, capsys, "--commands") == [
+            "plow-fix  stopped  /srv/plow-fix", "  cd /srv/plow && kitchen open plow-fix",
+            "acme/cos  stopped  ~/Plow/acme/cos", f"  cd {home}/Plow/acme/cos && kitchen open",
+            "hq/cos    running  ~/Plow/hq/cos", "  kitchen attach hq/cos"]
+        monkeypatch.setattr(sys, "argv", ["kitchen", "attach", "hq/cos"])
+        with patch("claude_kitchen.cli.os.execvp", side_effect=SystemExit) as ex, pytest.raises(SystemExit):
+            main()
+    assert ex.call_args.args[1][1:] == ["-L", "ck-users-you-plow-hq-cos-cos", "attach"]
+
+
+def test_ls_marks_a_sous_running_in_a_plain_terminal_running_and_attach_says_where(monkeypatch, capsys):
+    """kitchen.sh opens the sous in the terminal it ran in, not in tmux: with its cooks' server
+    gone there is nothing to attach to, yet the kitchen runs; reopening it would be refused."""
+    _kitchen_here("my-kitchen", sous=os.getpid(), source="/srv/my-kitchen",
+                  sous_launch={"argv": ["kitchen", "open"], "cwd": "/srv/my-kitchen", "socket": "", "pane": None})
+    with patch("claude_kitchen.cli.has_session", return_value=False):
+        assert _ls(monkeypatch, capsys, "--commands") == [
+            "my-kitchen  running  /srv/my-kitchen", "  in the terminal it was opened in"]
+        monkeypatch.setattr(sys, "argv", ["kitchen", "attach", "my-kitchen"])
+        with pytest.raises(SystemExit, match="runs in the terminal it was opened in"):
+            main()
+
+
+def test_ls_lists_two_kitchens_in_one_folder_by_their_real_names_which_no_folder_name_takes(monkeypatch, capsys):
+    _kitchen_here("plow", source="/srv/plow")
+    _kitchen_here("old", source="/srv/plow")
+    _kitchen_here("third", source="/srv/old")
+    with patch("claude_kitchen.cli.has_session", return_value=False):
+        assert _ls(monkeypatch, capsys) == [
+            "old      stopped  /srv/plow", "plow     stopped  /srv/plow", "srv/old  stopped  /srv/old"]
+        monkeypatch.setattr(sys, "argv", ["kitchen", "attach", "old"])
+        with pytest.raises(SystemExit, match='"old" is stopped'):
+            main()
+
+
+def test_ls_commands_quote_a_folder_name_for_the_shell(monkeypatch, capsys):
+    _kitchen_here("x", sous=os.getpid(), source="/srv/$(id) x")
+    with patch("claude_kitchen.cli.has_session", return_value=True):
+        assert _ls(monkeypatch, capsys, "--commands") == ["$(id) x  running  /srv/$(id) x", "  kitchen attach '$(id) x'"]
 
 
 def _sous_tmux(kitchen):
@@ -2932,21 +2980,19 @@ def _sous_tmux(kitchen):
     subprocess.run(["tmux", "-S", sock, "new-session", "-d", "-s", "agent", "sleep", "30"], check=True)
     pane = subprocess.run(["tmux", "-S", sock, "list-panes", "-F", "#{pane_id}"],
                           capture_output=True, text=True, check=True).stdout.strip()
-    _kitchen_here(kitchen, sous=os.getpid(), sous_launch={"socket": sock, "pane": pane})
+    _kitchen_here(kitchen, sous=os.getpid(), source="/srv/plow/acme/cos", sous_launch={"socket": sock, "pane": pane})
     return sock, pane
 
 
-def test_ls_prints_the_attach_command_of_a_suspended_kitchen_whose_sous_runs_on(monkeypatch, capsys):
+def test_ls_marks_a_suspended_kitchen_whose_sous_runs_on_running(monkeypatch, capsys):
     """`kitchen suspend` kills only the cooks' server: the sous's own tmux still answers,
-    so ls prints the command that opens it, as attach does."""
+    so ls marks it running, as attach opens it."""
     sock, _ = _sous_tmux("acme-cos")
-    monkeypatch.setattr(sys, "argv", ["kitchen", "ls"])
     try:
         with patch("claude_kitchen.cli.has_session", return_value=False):
-            main()
+            assert _ls(monkeypatch, capsys) == ["cos  running  /srv/plow/acme/cos"]
     finally:
         subprocess.run(["tmux", "-S", sock, "kill-server"], capture_output=True)
-    assert capsys.readouterr().out.splitlines() == ["kitchen attach acme-cos"]
 
 
 def test_attach_opens_the_sous_where_it_runs_else_the_kitchens_own_server(monkeypatch):
