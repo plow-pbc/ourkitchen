@@ -1681,12 +1681,14 @@ def cmd_restart(args):
 def cmd_close(args):
     kitchen = resolve_kitchen(args.kitchen)
     base = state_dir(kitchen)
+    containerized = False
 
     # Run on-close hook and remove worktree BEFORE killing tmux
     kitchen_file = base / "kitchen.json"
     if kitchen_file.exists():
         try:
             kj = json.loads(kitchen_file.read_text())
+            containerized = bool(kj.get("sous_container"))
             source = Path(kj["source"])
             cwd = Path(kj.get("worktree", kj["source"]))
             if cwd.exists():
@@ -1697,9 +1699,11 @@ def cmd_close(args):
                     remove_worktree(worktree, force=args.force)
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Warning: bad kitchen.json: {e}", file=sys.stderr)
-        kitchen_file.unlink(missing_ok=True)
-
     kill_server(kitchen)
+    if containerized:
+        from claude_kitchen.container import remove
+        remove(kitchen)
+    kitchen_file.unlink(missing_ok=True)
     for cook_file in sorted((base / "cooks").glob("*.json")):
         _archive_codex_thread(base, cook_file.stem)
 
@@ -1707,7 +1711,8 @@ def cmd_close(args):
     sock = channel_socket(base)
     for f in (sock, sock.with_name(sock.name + ".lock")):
         f.unlink(missing_ok=True)
-    for f in (MCP_CONFIG_NAME, LEGACY_MCP_CONFIG_NAME, "sous.pid"):
+    from claude_kitchen.container import MCP_CONFIG_NAME as CONTAINER_MCP_CONFIG_NAME
+    for f in (MCP_CONFIG_NAME, CONTAINER_MCP_CONFIG_NAME, LEGACY_MCP_CONFIG_NAME, "sous.pid"):
         (base / f).unlink(missing_ok=True)
     for sub in ("cooks", "notes", "codex-home"):
         d = base / sub

@@ -107,16 +107,44 @@ def spawn_sous(kitchen: str, state_dir: Path, sous_prompt: str,
     # token would parse as the next flag, not the name — and this name both
     # starts with `[` and carries a space. It's one execvp argv element, so no
     # shell quoting is involved; the space never splits it.
+    from claude_kitchen import container
+    kitchen_file = state_dir / "kitchen.json"
+    kitchen_state = None
+    if kitchen_file.exists():
+        kitchen_state = json.loads(kitchen_file.read_text())
+        was_containerized = bool(kitchen_state.get("sous_container"))
+        if was_containerized:
+            container.remove(kitchen)
+            kitchen_state["sous_container"] = False
+            kitchen_file.write_text(json.dumps(kitchen_state) + "\n")
+    container_config = container.config(project) if project else None
+    if kitchen_state is not None:
+        kitchen_state["sous_container"] = container_config is not None
+        kitchen_file.write_text(json.dumps(kitchen_state) + "\n")
+    mcp_config = container.mcp_config(state_dir) if container_config else state_dir / MCP_CONFIG_NAME
     claude_args = [
         "claude",
         "--dangerously-skip-permissions",
         "--dangerously-load-development-channels", *channel_flags(kitchen),
-        "--mcp-config", str(state_dir / MCP_CONFIG_NAME),
+        "--mcp-config", str(mcp_config),
         f"--remote-control=[sous] {kitchen}",
     ]
     if model:
         claude_args.extend(["--model", model])
-    if not _user_statusline():  # the status line is what receives the plan's usage
+    if container_config:
+        claude_args.extend(["--settings", json.dumps({
+            "hooks": {
+                "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "kitchen hook"}]}],
+                "Stop": [{"hooks": [{"type": "command", "command": "kitchen hook"}]}],
+                "StopFailure": [{"hooks": [{"type": "command", "command": "kitchen hook"}]}],
+                "PreToolUse": [{
+                    "matcher": "mcp__swarm.*__send",
+                    "hooks": [{"type": "command", "command": "kitchen consult-gate"}],
+                }],
+            },
+            "statusLine": {"type": "command", "command": "kitchen statusline-segment"},
+        })])
+    elif not _user_statusline():  # the status line is what receives the plan's usage
         claude_args.extend(["--settings", json.dumps({"statusLine": {"type": "command", "command": f"bash {shlex.quote(str(STATUSLINE))}"}})])
     if resume_session_id:
         claude_args.extend(["--resume", resume_session_id])
@@ -126,6 +154,13 @@ def spawn_sous(kitchen: str, state_dir: Path, sous_prompt: str,
     claude_args.extend(json.loads(turn) if turn is not None else sous_first_turn(kitchen))
     if project:
         os.chdir(project)
+    if container_config:
+        env = {key: os.environ[key] for key in (
+            "AGENT_KITCHEN", "AGENT_NAME", "STATUS_DIR", "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+            "KITCHEN_WIKI", "KITCHEN_NOTES",
+        ) if key in os.environ}
+        env["HOME"] = str(Path.home())
+        return container.run(kitchen, project, state_dir, container_config, claude_args, env)
     if WINDOWS:
         # Windows has no exec: os.execvp starts claude and exits, and the pane's
         # shell would take the console back from under it. So kitchen waits on
@@ -292,5 +327,3 @@ def _launched(result) -> bool:
     if result.returncode != 0:
         print(f"tmux: {result.stderr.strip()}", file=sys.stderr)
     return result.returncode == 0
-
-
