@@ -732,7 +732,8 @@ def cmd_ticket(args):
     if args.chat_message:
         if status.get("status") == "working":
             sys.exit(f"{name} is mid-turn, so its current report would carry this chat message. Ticket it once it reports, or hire another cook.")
-        update_status(base, name, chat_message=chat_record(args.chat_message))
+        from claude_kitchen.plow_chat import STARTED, mark
+        update_status(base, name, chat_message=mark(kitchen, chat_record(args.chat_message), STARTED))
     send_keys(kitchen, name, message, backend=backend)
 
     # Claude's UserPromptSubmit hook owns its start state; a write here could
@@ -1065,8 +1066,10 @@ def cmd_hook(args):
     if "chat_message" not in final and summary.rstrip().rpartition("\n")[2].strip() == "SILENT":
         return
     if "chat_message" in final:
-        push["chat_message"] = final.pop("chat_message")["message"]
-        write_status(base, name, final)
+        from claude_kitchen.plow_chat import DONE, mark
+        answered = final.pop("chat_message")
+        write_status(base, name, final)  # before the mark: a ticket taken meanwhile writes its own
+        push["chat_message"] = mark(kitchen, answered, DONE)["message"]
     ctx = _ctx_for_channel(final.get("tokens"))
     if ctx:
         push["ctx"] = ctx
