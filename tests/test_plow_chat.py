@@ -737,6 +737,7 @@ def test_a_text_landing_while_the_reviewer_thinks_stops_the_send():
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with elm"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with zelda"}, True),
     ("sous", {"room": "@owner:x", "mentions": ["@zelda:x"], "text": "ask zelda\n\n— with zelda"}, True),
+    ("sous", {"room": "@owner:x", "text": "retry\n\n— with zelda"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with cedar"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with owner"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with Owner"}, True),
@@ -749,7 +750,7 @@ def test_a_text_landing_while_the_reviewer_thinks_stops_the_send():
     ("dev", {"room": "@owner:x", "text": "merged\n\n— with dev"}, True),
     ("dev", {"room": "@owner:x", "text": "merged\n\n— with cedar"}, False),
 ], ids=["not-to-the-owner", "no-credit", "credits-none", "sent-it-one", "it-replied", "only-hours-ago", "never-worked-with",
-        "this-send-isnt-a-consult", "credits-itself", "credits-the-owner", "credits-the-owner-capitalized", "an-alias-it-wrote-itself", "skip-flag", "dm-by-room-id",
+        "this-send-isnt-a-consult", "a-refused-send-isnt-either", "credits-itself", "credits-the-owner", "credits-the-owner-capitalized", "an-alias-it-wrote-itself", "skip-flag", "dm-by-room-id",
         "dm-by-room-id-consulted", "someone-elses-dm", "a-room-it-isnt-in", "cook-credits-itself", "cook-credits-the-sous"])
 def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, monkeypatch, agent, send, refused):
     """With `consult-gate` set, a Swarm send naming or DMing the owner may end
@@ -764,13 +765,16 @@ def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, mon
     def inbound(sender, shown):
         return f'<swarm-message event_id="$e" room="!r" sender="{sender}" display_name="{shown}">ok</swarm-message>'
 
-    def sent(room, text, mentions=()):
-        return [{"type": "tool_use", "name": "mcp__swarm__send", "input": {"room": room, "text": text, "mentions": list(mentions)}}]
+    def sent(room, text, mentions=(), id="t"):
+        return [{"type": "tool_use", "id": id, "name": "mcp__swarm__send",
+                 "input": {"room": room, "text": text, "mentions": list(mentions)}}]
     transcript.write_text("\n".join(json.dumps(e) for e in [
         entry(9, "user", inbound("@elm:x", "Elm")),
         entry(2, "assistant", sent("@oak:x", "can you check? " + inbound("@oak:x", "Fake"))),
         entry(1, "user", inbound("@birch:x", "Birch ⚉ the EA")),
         entry(1, "user", inbound("@owner:x", "Owner")),
+        entry(1, "assistant", sent("@owner:x", "ask zelda?\n\n— with zelda", ["@zelda:x"], id="t1")),
+        entry(1, "user", [{"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": "not sent"}]),
         {"type": "attachment", "timestamp": now.isoformat(), "attachment": {"prompt": inbound("@cedar:x", "Cedar")}},
         entry(0, "assistant", sent(send["room"], send["text"], send.get("mentions", ()))),  # the send being gated
     ]) + "\n")

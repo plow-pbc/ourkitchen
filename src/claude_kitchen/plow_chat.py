@@ -248,7 +248,8 @@ def lines_back(path: str, block: int = 1 << 20):
 
 def worked_with(transcript: str, name: str, text: str, exclude: set[str]) -> bool:
     """Whether the session `transcript` records, in the last CONSULT_HOURS,
-    sent a Swarm message to `name` other than `text`, or was sent one by it.
+    sent a Swarm message to `name` other than `text` that wasn't refused, or
+    was sent one by it.
     `name` is a user id's localpart, or the first word of a display name a
     message the session read in that time shows for it; ids in `exclude`
     never count."""
@@ -263,11 +264,14 @@ def worked_with(transcript: str, name: str, text: str, exclude: set[str]) -> boo
     ids = {i for e in recent if e["type"] != "assistant" for t in strings(e)  # what it was shown, not what it wrote
            for i, shown in TAG.findall(t) if shown.casefold().split()[:1] == [name]}
     named = lambda user_id: user_id not in exclude and (user_id in ids or local(user_id).casefold() == name)
+    refused = {b.get("tool_use_id") for e in recent if e["type"] == "user" for b in e["message"].get("content") or ()
+               if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("is_error")}
     for e in recent:
         content = e.get("message", {}).get("content")
         blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content or []
         if e["type"] == "assistant" and any(
-                b.get("type") == "tool_use" and re.fullmatch(r"mcp__swarm.*__send", b["name"]) and b["input"].get("text") != text
+                b.get("type") == "tool_use" and re.fullmatch(r"mcp__swarm.*__send", b["name"])
+                and b["id"] not in refused and b["input"].get("text") != text
                 and any(map(named, [b["input"].get("room", ""), *b["input"].get("mentions", [])])) for b in blocks):
             return True  # it sent them one
         inbound = [b["text"] for b in blocks if b.get("type") == "text"] if e["type"] == "user" else \
