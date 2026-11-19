@@ -2941,6 +2941,19 @@ def test_ls_is_one_line_per_kitchen_named_by_its_folder_and_attach_takes_that_na
     assert ex.call_args.args[1][1:] == ["-L", "ck-users-you-plow-hq-cos-cos", "attach"]
 
 
+def test_ls_marks_a_sous_running_in_a_plain_terminal_running_and_attach_says_where(monkeypatch, capsys):
+    """kitchen.sh opens the sous in the terminal it ran in, not in tmux: with its cooks' server
+    gone there is nothing to attach to, yet the kitchen runs; reopening it would be refused."""
+    _kitchen_here("my-kitchen", sous=os.getpid(), source="/srv/my-kitchen",
+                  sous_launch={"argv": ["kitchen", "open"], "cwd": "/srv/my-kitchen", "socket": "", "pane": None})
+    with patch("claude_kitchen.cli.has_session", return_value=False):
+        assert _ls(monkeypatch, capsys, "--commands") == [
+            "my-kitchen  running  /srv/my-kitchen", "  in the terminal it was opened in"]
+        monkeypatch.setattr(sys, "argv", ["kitchen", "attach", "my-kitchen"])
+        with pytest.raises(SystemExit, match="runs in the terminal it was opened in"):
+            main()
+
+
 def test_ls_lists_two_kitchens_in_one_folder_by_their_real_names(monkeypatch, capsys):
     _kitchen_here("plow", source="/srv/plow")
     _kitchen_here("old", source="/srv/plow")

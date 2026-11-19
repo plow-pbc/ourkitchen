@@ -835,13 +835,18 @@ def cmd_brigade(kitchen: str = None):
             print(f"  {win:<{name_w}}  {s:<7}  {ctx}{resets}")
 
 
-def _attach_argv(kitchen: str) -> list[str] | None:
-    """The tmux command that opens a kitchen, or None when its sous isn't running (a
-    cooks' server it left behind is no live kitchen): the pane its sous runs in, when
-    it runs in one (an agent installed into a shared tmux session), else the kitchen's
-    own server, where its cooks are. One answer for `kitchen ls` and `kitchen attach`."""
+def _sous_alive(kitchen: str) -> bool:
+    """A kitchen runs while its sous does (a cooks' server it left behind is no live kitchen)."""
     pid = state_dir(kitchen) / "sous.pid"
-    if not (pid.exists() and pid_alive(int(pid.read_text()))):
+    return pid.exists() and pid_alive(int(pid.read_text()))
+
+
+def _attach_argv(kitchen: str) -> list[str] | None:
+    """The tmux command that opens a running kitchen: the pane its sous runs in, when
+    it runs in one (an agent installed into a shared tmux session), else the kitchen's
+    own server, where its cooks are; None when there is neither. One answer for
+    `kitchen ls` and `kitchen attach`."""
+    if not _sous_alive(kitchen):
         return None
     launch = json.loads((state_dir(kitchen) / "kitchen.json").read_text()).get("sous_launch") or {}
     if launch.get("pane") and subprocess.run(
@@ -889,11 +894,11 @@ def cmd_ls(commands: bool = False):
         return
     width = max(map(len, names))
     for name, (kitchen, folder) in names.items():
-        up = _attach_argv(kitchen)
+        running = _sous_alive(kitchen)
         shown = Path("~", folder.relative_to(Path.home())) if folder.is_relative_to(Path.home()) else folder
-        print(f"{name:<{width}}  {'running' if up else 'stopped'}  {shown}")
-        if commands:
-            print(f"  {f'kitchen attach {name}' if up else _reopen_cmd(kitchen)}")
+        print(f"{name:<{width}}  {'running' if running else 'stopped'}  {shown}")
+        if commands:  # a sous opened in a plain terminal, with no cooks' server, has nothing to attach to
+            print(f"  {f'kitchen attach {name}' if _attach_argv(kitchen) else 'in the terminal it was opened in' if running else _reopen_cmd(kitchen)}")
 
 
 def cmd_attach(args):
@@ -903,7 +908,8 @@ def cmd_attach(args):
         sys.exit(f"No kitchen \"{kitchen}\" here: `kitchen ls` lists them.")
     argv = _attach_argv(kitchen)
     if not argv:
-        sys.exit(f"Kitchen \"{kitchen}\" is stopped. Reopen it with:\n  {_reopen_cmd(kitchen)}")
+        sys.exit(f"Kitchen \"{kitchen}\" runs in the terminal it was opened in." if _sous_alive(kitchen) else
+                 f"Kitchen \"{kitchen}\" is stopped. Reopen it with:\n  {_reopen_cmd(kitchen)}")
     os.execvp(TMUX, argv)
 
 
