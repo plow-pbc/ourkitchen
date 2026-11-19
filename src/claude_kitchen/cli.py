@@ -859,17 +859,18 @@ def _attach_argv(kitchen: str) -> list[str] | None:
 
 
 def _folder(kitchen: str) -> str:
-    """The folder a kitchen's sous runs in."""
+    """The folder a kitchen's sous runs in: its worktree, else its project."""
     kj = json.loads((state_dir(kitchen) / "kitchen.json").read_text())
-    return (kj.get("sous_launch") or {}).get("cwd") or kj.get("worktree") or kj["source"]
+    return kj.get("worktree") or kj["source"]
 
 
 def _reopen_cmd(kitchen: str) -> str:
     """The line that starts a stopped kitchen's sous again where it last ran, as
     `kitchen restart` does: its `kitchen open` argv, resuming its conversation."""
     kj = json.loads((state_dir(kitchen) / "kitchen.json").read_text())
-    argv = ["kitchen", *(kj.get("sous_launch") or {}).get("argv", ["kitchen", "open"])[1:]] + ["--resume"] * bool(_sous_session_id(state_dir(kitchen), kj))
-    return f"cd {shlex.quote(_folder(kitchen))} && {shlex.join(argv)}"
+    launch = kj.get("sous_launch") or {}
+    argv = ["kitchen", *launch.get("argv", ["kitchen", "open"])[1:]] + ["--resume"] * bool(_sous_session_id(state_dir(kitchen), kj))
+    return f"cd {shlex.quote(launch.get('cwd') or _folder(kitchen))} && {shlex.join(argv)}"
 
 
 def _ls_names() -> dict[str, tuple[str, Path]]:
@@ -879,9 +880,12 @@ def _ls_names() -> dict[str, tuple[str, Path]]:
     whole path when it was opened in a plain folder (users-you-plow-hq-cos-cos)."""
     folders = {k: Path(_folder(k)) for k in list_kitchens(live=False)}
 
-    def name(kitchen: str, f: Path) -> str:  # two kitchens in one folder keep their real names
-        return next((str(Path(*f.parts[-n:])) for n in range(1, len(f.parts))
-                     if [o.parts[-n:] for o in folders.values()].count(f.parts[-n:]) == 1), kitchen)
+    def name(kitchen: str, f: Path) -> str:
+        others = {k: g for k, g in folders.items() if k != kitchen}
+        for n in range(1, len(f.parts)):  # never another kitchen's real name, which attach takes too
+            if (short := str(Path(*f.parts[-n:]))) not in others and all(g.parts[-n:] != f.parts[-n:] for g in others.values()):
+                return short
+        return kitchen  # its folder is another kitchen's too
     return {name(k, f): (k, f) for k, f in folders.items()}
 
 
@@ -898,7 +902,7 @@ def cmd_ls(commands: bool = False):
         shown = Path("~", folder.relative_to(Path.home())) if folder.is_relative_to(Path.home()) else folder
         print(f"{name:<{width}}  {'running' if running else 'stopped'}  {shown}")
         if commands:  # a sous opened in a plain terminal, with no cooks' server, has nothing to attach to
-            print(f"  {f'kitchen attach {name}' if _attach_argv(kitchen) else 'in the terminal it was opened in' if running else _reopen_cmd(kitchen)}")
+            print(f"  {shlex.join(['kitchen', 'attach', name]) if _attach_argv(kitchen) else 'in the terminal it was opened in' if running else _reopen_cmd(kitchen)}")
 
 
 def cmd_attach(args):

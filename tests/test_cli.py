@@ -2924,7 +2924,8 @@ def test_ls_is_one_line_per_kitchen_named_by_its_folder_and_attach_takes_that_na
     home = Path.home()
     _kitchen_here("users-you-plow-acme-cos-cos", source=f"{home}/Plow/acme/cos")
     _kitchen_here("users-you-plow-hq-cos-cos", sous=os.getpid(), source=f"{home}/Plow/hq/cos")
-    _kitchen_here("plow-fix", source="/srv/plow", worktree="/srv/plow-fix")
+    _kitchen_here("plow-fix", source="/srv/plow", worktree="/srv/plow-fix",  # `kitchen open plow-fix` in /srv/plow
+                  sous_launch={"argv": ["/srv/bin/kitchen", "open", "plow-fix"], "cwd": "/srv/plow"})
     running = lambda k, timeout=None: k == "users-you-plow-hq-cos-cos"
     with patch("claude_kitchen.cli.has_session", side_effect=running):
         assert _ls(monkeypatch, capsys) == [
@@ -2932,7 +2933,7 @@ def test_ls_is_one_line_per_kitchen_named_by_its_folder_and_attach_takes_that_na
             "acme/cos  stopped  ~/Plow/acme/cos",
             "hq/cos    running  ~/Plow/hq/cos"]
         assert _ls(monkeypatch, capsys, "--commands") == [
-            "plow-fix  stopped  /srv/plow-fix", "  cd /srv/plow-fix && kitchen open",
+            "plow-fix  stopped  /srv/plow-fix", "  cd /srv/plow && kitchen open plow-fix",
             "acme/cos  stopped  ~/Plow/acme/cos", f"  cd {home}/Plow/acme/cos && kitchen open",
             "hq/cos    running  ~/Plow/hq/cos", "  kitchen attach hq/cos"]
         monkeypatch.setattr(sys, "argv", ["kitchen", "attach", "hq/cos"])
@@ -2954,11 +2955,22 @@ def test_ls_marks_a_sous_running_in_a_plain_terminal_running_and_attach_says_whe
             main()
 
 
-def test_ls_lists_two_kitchens_in_one_folder_by_their_real_names(monkeypatch, capsys):
+def test_ls_lists_two_kitchens_in_one_folder_by_their_real_names_which_no_folder_name_takes(monkeypatch, capsys):
     _kitchen_here("plow", source="/srv/plow")
     _kitchen_here("old", source="/srv/plow")
+    _kitchen_here("third", source="/srv/old")
     with patch("claude_kitchen.cli.has_session", return_value=False):
-        assert _ls(monkeypatch, capsys) == ["old   stopped  /srv/plow", "plow  stopped  /srv/plow"]
+        assert _ls(monkeypatch, capsys) == [
+            "old      stopped  /srv/plow", "plow     stopped  /srv/plow", "srv/old  stopped  /srv/old"]
+        monkeypatch.setattr(sys, "argv", ["kitchen", "attach", "old"])
+        with pytest.raises(SystemExit, match='"old" is stopped'):
+            main()
+
+
+def test_ls_commands_quote_a_folder_name_for_the_shell(monkeypatch, capsys):
+    _kitchen_here("x", sous=os.getpid(), source="/srv/$(id) x")
+    with patch("claude_kitchen.cli.has_session", return_value=True):
+        assert _ls(monkeypatch, capsys, "--commands") == ["$(id) x  running  /srv/$(id) x", "  kitchen attach '$(id) x'"]
 
 
 def _sous_tmux(kitchen):
