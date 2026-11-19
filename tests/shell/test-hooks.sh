@@ -5,15 +5,21 @@ HERE=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 HOOKS="$HERE/../../src/claude_kitchen/hooks"
 RULES_HOME="$HERE/fixtures/rules-home"
 # The agent-rules repo comes from operator.env; unset, the nudge names it generically.
+# With no operator.env at all (a fresh machine: no runbooks to file a note in) the hooks say nothing.
+BARE_HOME=$(mktemp -d); mkdir -p "$BARE_HOME/.config/kitchen"; : >"$BARE_HOME/.config/kitchen/operator.env"
 for hook in capture-answer capture-prompt; do
   ctx=$(echo '{}' | HOME="$RULES_HOME" "$HOOKS/$hook.sh" | jq -r '.hookSpecificOutput.additionalContext')
   assert_contains "$ctx" "a PR to the acme/agent-rules repo" "$hook names AGENT_RULES_REPO from operator.env"
-  ctx=$(echo '{}' | HOME="$RULES_HOME/none" "$HOOKS/$hook.sh" | jq -r '.hookSpecificOutput.additionalContext')
+  ctx=$(echo '{}' | HOME="$BARE_HOME" "$HOOKS/$hook.sh" | jq -r '.hookSpecificOutput.additionalContext')
   assert_contains "$ctx" "a PR to the operator's agent-rules repo" "$hook without AGENT_RULES_REPO names the repo generically"
+  out=$(echo '{}' | HOME="$RULES_HOME/none" "$HOOKS/$hook.sh"); rc=$?
+  assert_rc 0 "$rc" "$hook without operator.env exits 0"
+  assert_eq "" "$out" "$hook without operator.env says nothing"
 done
+rm -rf "$BARE_HOME"
 
 # capture-answer.sh — PostToolUse[AskUserQuestion]: valid JSON, exit 0, right event + nudge
-out=$(printf '{"tool_name":"AskUserQuestion","tool_input":{}}' | "$HOOKS/capture-answer.sh"); rc=$?
+out=$(printf '{"tool_name":"AskUserQuestion","tool_input":{}}' | HOME="$RULES_HOME" "$HOOKS/capture-answer.sh"); rc=$?
 assert_rc 0 "$rc" "capture-answer exits 0"
 printf '%s' "$out" | jq -e . >/dev/null 2>&1; assert_rc 0 $? "capture-answer emits valid JSON"
 assert_eq "PostToolUse" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.hookEventName')" "capture-answer event name"
@@ -26,7 +32,7 @@ assert_contains "$ctx" "paraphrased" "capture-answer prefers paraphrased evidenc
 assert_contains "$ctx" "omit any secret" "capture-answer says to omit secrets/PII"
 
 # capture-prompt.sh — UserPromptSubmit: valid JSON, exit 0, right event + nudge
-out=$(printf 'go with the simpler version' | "$HOOKS/capture-prompt.sh"); rc=$?
+out=$(printf 'go with the simpler version' | HOME="$RULES_HOME" "$HOOKS/capture-prompt.sh"); rc=$?
 assert_rc 0 "$rc" "capture-prompt exits 0"
 printf '%s' "$out" | jq -e . >/dev/null 2>&1; assert_rc 0 $? "capture-prompt emits valid JSON"
 assert_eq "UserPromptSubmit" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.hookEventName')" "capture-prompt event name"

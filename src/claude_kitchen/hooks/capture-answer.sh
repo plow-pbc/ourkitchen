@@ -5,6 +5,8 @@
 # This sidesteps any payload-schema fragility and keeps the hook trivial.
 set -euo pipefail
 cat >/dev/null 2>&1 || true   # drain stdin so the harness's writer never EPIPEs
+# No operator.env = no runbooks to file a note in (a fresh install): say nothing.
+[ -f "$HOME/.config/kitchen/operator.env" ] || exit 0
 repo=$(sed -n 's/^AGENT_RULES_REPO=//p' "$HOME/.config/kitchen/operator.env" 2>/dev/null | tr -d "\"'" | tail -n1) || true
 rules="the operator's agent-rules repo"
 [ -z "$repo" ] || rules="the $repo repo"
