@@ -37,7 +37,7 @@ _tcp_eligible() { # _tcp_eligible <dir>
 _tcp() { # _tcp <repo-dir> <tag> <host>
   _tcp_repo=$1 _tcp_tag=$2 _tcp_host=$3
   for _tcp_n in 0 1 2 3 4 5 6 7 8 9; do
-    _tcp_d=$HOME/Hacking/$_tcp_repo$_tcp_n
+    _tcp_d=$HOME/kitchen-slots/$_tcp_repo$_tcp_n
     [ -d "$_tcp_d/.git" ] || continue
     _tcp_eligible "$_tcp_d" || continue
     # Skip a slot with a LIVE claim lock (the real cross-subagent/-fork interlock;

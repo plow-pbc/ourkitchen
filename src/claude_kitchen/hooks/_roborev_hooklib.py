@@ -504,8 +504,8 @@ def format_backlog_summary(backlog: list[dict]) -> str:
     """Render `open_fail_backlog()` output as a compact `repo  branch  count/ids`
     block for the pre-push gate's non-blocking surface, plus the active-vs-stale
     cleanup nudge. Groups by (root_path, branch) — keyed on ROOT, not repo name,
-    so same-basename sibling clones (the `~/Hacking/<repo>` vs `~/services/<repo>`
-    pattern) stay distinct rather than collapsing into one row. The pushed branch
+    so same-basename sibling clones (one repo cloned into two folders) stay
+    distinct rather than collapsing into one row. The pushed branch
     is deliberately NOT marked: this only runs once the gate has confirmed the
     pushed (repo, branch) has zero open FAILs (it denies otherwise), so the pushed
     branch can never appear in this backlog — there's nothing to mark."""

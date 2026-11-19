@@ -80,4 +80,4 @@ fleet_is_self() { # <host-or-alias>
 }
 
 fleet_session() { printf '%s%s-%s\n' "$(fleet_tag "$1")" "$2" "$3"; } # <repo> <N|''> <host>
-fleet_dir()     { printf '~/Hacking/%s%s\n' "$(fleet_repo "$1")" "$2"; } # <repo> <N|''>
+fleet_dir()     { printf '~/kitchen-slots/%s%s\n' "$(fleet_repo "$1")" "$2"; } # <repo> <N|''>

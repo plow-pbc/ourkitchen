@@ -136,8 +136,8 @@ From inside Claude Code:
 ### 4. Clone and install kitchen
 
 ```bash
-git clone git@github.com:plonkus/kitchen.git
-cd kitchen
+git clone git@github.com:plow-pbc/ourkitchen.git
+cd ourkitchen
 uv tool install --editable .
 ```
 
@@ -152,7 +152,7 @@ kitchen setup
 `kitchen setup` installs and verifies:
 
 1. Claude hooks, owned by kitchen: `kitchen hook` (`Stop`, `UserPromptSubmit`); the memory-capture nudges `capture-prompt.sh` (`UserPromptSubmit`) and `capture-answer.sh` (after `AskUserQuestion`); and the roborev gates for `git commit`, `git push` and branch switches (`PreToolUse[Bash]`), all from `src/claude_kitchen/hooks/`. Setup drops an older `~/.claude/hooks/<name>` copy of any of these, adds each missing entry once, keeps every other setting and hook, and writes a `settings.json.bak-kitchen-<time>` backup first. The roborev gates need the `roborev` CLI; without it they stay silent.
-2. Kitchen's skills (`src/claude_kitchen/skills/*`), linked into `~/.claude/skills` and `~/.agents/skills`, and its `tc`, linked into `~/.local/bin`. A missing link is created, a link to the `code-config` copy it moved from is retargeted, and anything else is left alone and reported.
+2. Kitchen's skills (`src/claude_kitchen/skills/*`), linked into `~/.claude/skills` and `~/.agents/skills`, and its `tc`, linked into `~/.local/bin`. A missing link is created; anything else is left alone and reported.
 3. The Playwright MCP server behind the `playwright` skill (`setup-playwright-mcp.sh`): a pinned `@playwright/mcp`, headed on macOS and headless on Linux, with Playwright's Chromium downloaded when the host has none. It is a no-op once registered.
 4. The `mcp` Python SDK.
 5. The superpowers plugin.
@@ -163,17 +163,17 @@ The statusline check is advisory. Re-run the command until the blocking checks a
 
 ## `tc` — fleet tmux/checkout tool
 
-Collapses the `ssh -t <host> 'tmux new -A -s …'` + `cd ~/Hacking/<repo>` ritual into one command, with consistent `<tag><N>-<host>` session names and the right start dir. Checkouts are uniform numbered slots `~/Hacking/<repo>0..<repo>9`. `<repo>` accepts a short tag (`kwr`) or the full dir name (`knightwatch-reviewer`).
+Collapses the `ssh -t <host> 'tmux new -A -s …'` + `cd ~/kitchen-slots/<repo>` ritual into one command, with consistent `<tag><N>-<host>` session names and the right start dir. Checkouts are uniform numbered slots `~/kitchen-slots/<repo>0..<repo>9`. `<repo>` accepts a short tag (`rb`) or the full dir name (`review-bot`).
 
 ```sh
-tc <repo> <N> <host>        # attach/create slot N:  ~/Hacking/<repo><N>  → <tag><N>-<host>
+tc <repo> <N> <host>        # attach/create slot N:  ~/kitchen-slots/<repo><N>  → <tag><N>-<host>
 tc new <repo> <host>        # next FREE workspace (on main + clean + not busy), scanning <repo>0..9
 tc claim <repo> <branch> [N]  # headless: claim a free local slot, or exact slot N; checkout -b <branch>
 tc prune-targets <repo>       # delete target/ in idle local slots (not busy, not claimed, untouched 24h) and route their builds through sccache; TC_DRYRUN=1 lists
 tc setup <repo> <host> [url]  # clone <repo>0..<repo>9 on <host> (idempotent)
 ```
 
-`kitchen setup` links `tc` into `~/.local/bin`. It needs a host table at `~/.config/kitchen/fleet-hosts` (override with `KITCHEN_FLEET_HOSTS`), one `<host> <user> [alias]` row per line; host-dependent `tc` commands (connect, `new`, `setup`) and the fleet helpers fail loudly without it; `tc claim` is local and still works. `tests/shell/fixtures/fleet-hosts` shows the shape; the optional alias gives a host one short name (a row `laptop-pro alice lp` lets `tc my-app 5 lp` reach it). Short repo tags come from an optional `~/.config/kitchen/fleet-repos` (`<tag> <repo-dir>` rows; override with `KITCHEN_FLEET_REPOS`); without it a repo is named by its dir. Running `tc … <thishost>` runs tmux locally instead of SSH-to-self. `tc setup` resolves the git URL from `<repo>0`'s `origin` — falling back to a legacy bare `~/Hacking/<repo>` checkout — or takes an explicit `[url]`. A legacy bare checkout is otherwise ignored: `tc` no longer attaches to it, scans it, or clones it, so fleets migrate organically to the numbered slots.
+`kitchen setup` links `tc` into `~/.local/bin`. It needs a host table at `~/.config/kitchen/fleet-hosts` (override with `KITCHEN_FLEET_HOSTS`), one `<host> <user> [alias]` row per line; host-dependent `tc` commands (connect, `new`, `setup`) and the fleet helpers fail loudly without it; `tc claim` is local and still works. `tests/shell/fixtures/fleet-hosts` shows the shape; the optional alias gives a host one short name (a row `laptop-pro alice lp` lets `tc my-app 5 lp` reach it). Short repo tags come from an optional `~/.config/kitchen/fleet-repos` (`<tag> <repo-dir>` rows; override with `KITCHEN_FLEET_REPOS`); without it a repo is named by its dir. Running `tc … <thishost>` runs tmux locally instead of SSH-to-self. `tc setup` resolves the git URL from `<repo>0`'s `origin` — falling back to a legacy bare `~/kitchen-slots/<repo>` checkout — or takes an explicit `[url]`. A legacy bare checkout is otherwise ignored: `tc` no longer attaches to it, scans it, or clones it, so fleets migrate organically to the numbered slots.
 
 A daily prune keeps Rust slots from filling the disk: `ln -sf "$PWD"/src/claude_kitchen/tc/systemd/tc-prune-targets@.{service,timer} ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now tc-prune-targets@<repo>.timer` (04:30 daily). With `sccache` in `~/.cargo/bin`, the same run gives every free slot a git-excluded `.cargo/config.toml` that routes builds through it, so a pruned slot rebuilds its dependencies from a cache shared by all slots.
 
@@ -256,7 +256,7 @@ kitchen hire architect --model opus
 # Codex model; astra is passed to `codex -m` as gpt-6-astra (Codex cooks only)
 kitchen hire reviewer --backend codex --model astra
 
-# Work in a free ~/Hacking/widget<N> slot claimed with kitchen's `tc claim`
+# Work in a free ~/kitchen-slots/widget<N> slot claimed with kitchen's `tc claim`
 kitchen hire eng --role eng --slot widget
 
 # Near-fresh eval worker: no role, auto-memory, or superpowers startup injection

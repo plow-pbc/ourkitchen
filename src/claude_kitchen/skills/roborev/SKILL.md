@@ -48,6 +48,6 @@ Resolve stale findings you authored. Do not close recent findings that another s
 
 ## Recovery
 
-- If `roborev` is missing, install it with roborev's own installer (the operator's config repo wraps it as `just install-roborev`). `kitchen setup` owns the Claude hooks and this skill; the roborev install owns the binary, daemon, and native Git hooks.
+- If `roborev` is missing, install it with roborev's own installer. `kitchen setup` owns the Claude hooks and this skill; the roborev install owns the binary, daemon, and native Git hooks.
 - If the queue is not draining, check `roborev status`. Restart `roborev-daemon.service` on Linux or reload its LaunchAgent on macOS (`launchctl list | grep roborev` names it).
 - The Linux service is named `roborev-daemon.service`, not `roborev`.

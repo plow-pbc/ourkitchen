@@ -177,7 +177,7 @@ async def run(*args: str, stdin: str = "") -> str:
 
 
 def local(user_id: str) -> str:
-    """A Swarm user id's name: `@cedar:server` is `cedar`."""
+    """A Swarm user id's name: `@juniper:server` is `juniper`."""
     return user_id[1:].split(":")[0]
 
 
