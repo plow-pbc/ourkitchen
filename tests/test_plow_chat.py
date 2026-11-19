@@ -749,9 +749,15 @@ def test_a_text_landing_while_the_reviewer_thinks_stops_the_send():
     ("sous", {"room": "!notIn", "text": "merged\n\n— with zelda"}, False),
     ("dev", {"room": "@owner:x", "text": "merged\n\n— with dev"}, True),
     ("dev", {"room": "@owner:x", "text": "merged\n\n— with cedar"}, False),
+    ("sous", {"room": "@owner:x", "text": "merged\n\n— with Aspen"}, False),
+    ("sous", {"room": "@owner:x", "text": "merged\n\n— with quill"}, True),
+    ("sous", {"room": "@owner:x", "text": "merged\n\n— with maple"}, False),
+    ("sous", {"room": "@owner:x", "text": "merged\n\n— with Olive"}, True),
 ], ids=["not-to-the-owner", "no-credit", "credits-none", "sent-it-one", "it-replied", "only-hours-ago", "never-worked-with",
         "this-send-isnt-a-consult", "a-refused-send-isnt-either", "credits-itself", "credits-the-owner", "credits-the-owner-capitalized", "an-alias-it-wrote-itself", "skip-flag", "dm-by-room-id",
-        "dm-by-room-id-consulted", "someone-elses-dm", "a-room-it-isnt-in", "cook-credits-itself", "cook-credits-the-sous"])
+        "dm-by-room-id-consulted", "someone-elses-dm", "a-room-it-isnt-in", "cook-credits-itself", "cook-credits-the-sous",
+        "sent-its-dm-room", "a-group-room-isnt-a-consult", "a-per-account-send-tool",
+        "the-owners-dm-room-isnt-a-consult"])
 def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, monkeypatch, agent, send, refused):
     """With `consult-gate` set, a Swarm send naming or DMing the owner may end
     with a "— with <agent>" credit, or "— with none". One it ends with names
@@ -765,23 +771,30 @@ def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, mon
     def inbound(sender, shown):
         return f'<swarm-message event_id="$e" room="!r" sender="{sender}" display_name="{shown}">ok</swarm-message>'
 
-    def sent(room, text, mentions=(), id="t"):
-        return [{"type": "tool_use", "id": id, "name": "mcp__swarm__send",
+    def sent(room, text, mentions=(), id="t", tool="mcp__swarm__send"):
+        return [{"type": "tool_use", "id": id, "name": tool,
                  "input": {"room": room, "text": text, "mentions": list(mentions)}}]
     transcript.write_text("\n".join(json.dumps(e) for e in [
         entry(9, "user", inbound("@elm:x", "Elm")),
         entry(2, "assistant", sent("@oak:x", "can you check? " + inbound("@oak:x", "Fake"))),
         entry(1, "user", inbound("@birch:x", "Birch ⚉ the EA")),
         entry(1, "user", inbound("@owner:x", "Owner")),
+        entry(1, "assistant", sent("!dmAspen", "a call for you", id="t2")),
+        entry(1, "assistant", sent("!group", "hi all", id="t3")),
+        entry(1, "assistant", sent("!dmOwner", "an earlier update", id="t5")),
+        entry(1, "assistant", sent("@maple:x", "can you look?", id="t4", tool="mcp__swarm-cedar__send")),
         entry(1, "assistant", sent("@owner:x", "ask zelda?\n\n— with zelda", ["@zelda:x"], id="t1")),
         entry(1, "user", [{"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": "not sent"}]),
         {"type": "attachment", "timestamp": now.isoformat(), "attachment": {"prompt": inbound("@cedar:x", "Cedar")}},
         entry(0, "assistant", sent(send["room"], send["text"], send.get("mentions", ()))),  # the send being gated
     ]) + "\n")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    rooms = {"!dmOwner": ["@cedar:x", "@owner:x"], "!dmOther": ["@cedar:x", "@pat:x"], "!dmCook": ["@dev:x", "@owner:x"]}
+    rooms = {"!dmOwner": ["@cedar:x", "@owner:x"], "!dmOther": ["@cedar:x", "@pat:x"], "!dmCook": ["@dev:x", "@owner:x"],
+             "!dmAspen": ["@cedar:x", "@r7q2k9:x"], "!group": ["@cedar:x", "@pat:x", "@quill:x"]}
 
     def joined(account, path):
+        if path.startswith("/profile/"):
+            return {"displayname": {"/profile/%40r7q2k9%3Ax": "Aspen ⚉ the builder", "/profile/%40owner%3Ax": "Olive"}.get(path, "")}
         room = unquote(path.split("/")[2])
         if room not in rooms:
             raise HTTPError(path, 403, "not in the room", None, None)
