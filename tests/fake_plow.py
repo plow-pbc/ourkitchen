@@ -54,7 +54,7 @@ class FakePlow:
         elif handle:
             sender = {"type": "member", "display_name": NAMES.get(handle, handle), "provider_key": handle}
         else:
-            sender = {"type": "agent", "relationship": "self", "line": {"display_name": "Cedar", "uid": "ln_self"}}
+            sender = {"type": "agent", "relationship": "self", "line": {"display_name": "Juniper", "uid": "ln_self"}}
         attachments = []
         for name, data in files:  # data None: Plow lists it but can't serve it
             uid = f"att_{next(self._uids)}"
@@ -99,7 +99,7 @@ class FakePlow:
     async def _me(self, request):
         if not self._authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return JSONResponse({"line": {"uid": "ln_self", "display_name": "Cedar"}, "chats": self._chats()})
+        return JSONResponse({"line": {"uid": "ln_self", "display_name": "Juniper"}, "chats": self._chats()})
 
     def _chats(self):
         line = {"type": "agent", "relationship": "self"}

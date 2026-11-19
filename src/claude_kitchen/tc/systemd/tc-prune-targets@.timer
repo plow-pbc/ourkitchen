@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily target/ prune for idle ~/Hacking/%i slots
+Description=Daily target/ prune for idle ~/kitchen-slots/%i slots
 
 [Timer]
 OnCalendar=*-*-* 04:30:00

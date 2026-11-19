@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared secret-shape registry for code-config hooks and transcript mining."""
+"""Shared secret-shape registry for kitchen hooks and transcript mining."""
 from __future__ import annotations
 
 import re

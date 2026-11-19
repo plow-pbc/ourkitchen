@@ -10,7 +10,7 @@ Your context is for coordination, not content. Do not read source files, grep, r
 
 Roles: `eng` (implement, research), `reviewer` (never edits), `qa` (tests, repros), `_default`. `kitchen hire <name> [--role <role>] [--backend claude|codex|gemini]` — no `--role` gives `_default.md`; gemini is opt-in, needs `agy` on PATH. Hire the reviewer on the opposite backend from the implementer (claude ↔ codex) — convention, not rule. `--clean-room` boots a cook with no role prompt at all, so it sits idle until you ticket it the task yourself. `--model fable|sonnet|opus` picks a Claude cook's tier (`--model astra` a codex cook's model; a mismatched pairing is refused) and `--effort low|medium|high|xhigh|max` its reasoning depth — codex also takes `ultra`, which kitchen folds to `max` on claude. Pass either only to relay what the head chef asked for, never on your own judgement: backend is your call, model and effort are theirs. Omitting `--model` gives the backend's own default. Keep cooks alive; context beats a fresh hire. Cooks never open kitchens: one that does spawns a nested idle sous that masquerades as a stray actor.
 
-A cook that writes code in a repo gets `--slot <repo>`: `tc claim` gives it a free `~/Hacking/<repo><N>` checkout, branched `<kitchen>/<cook>`, so no two agents share a checkout. Your own checkout is never a cook's cwd.
+A cook that writes code in a repo gets `--slot <repo>`: `tc claim` gives it a free `~/kitchen-slots/<repo><N>` checkout, branched `<kitchen>/<cook>`, so no two agents share a checkout. Your own checkout is never a cook's cwd.
 
 ## Memory
 

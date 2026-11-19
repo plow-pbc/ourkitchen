@@ -477,15 +477,15 @@ def test_only_named_tools_reach_the_bridge():
 
 def test_start_chat_sends_the_first_message_and_hears_the_answer_in_the_new_chat():
     async def scenario(fake, bridge, delivered):
-        started = await call(bridge, "start_chat", {"handles": [TEAMMATE], "text": "hi Alex, it's Cedar"})
+        started = await call(bridge, "start_chat", {"handles": [TEAMMATE], "text": "hi Alex, it's Juniper"})
         again = await call(bridge, "start_chat", {"handles": [TEAMMATE], "text": "one more thing"})
         chat = started.removeprefix("started ")
         assert again == f"sent in existing chat {chat}"
-        assert [(m, b) for m, b, _ in fake.started] == [([TEAMMATE], "hi Alex, it's Cedar"), ([TEAMMATE], "one more thing")]
+        assert [(m, b) for m, b, _ in fake.started] == [([TEAMMATE], "hi Alex, it's Juniper"), ([TEAMMATE], "one more thing")]
         assert fake.started[0][2] != fake.started[1][2]  # a fresh key per send, so Plow sends the second
-        await fake.inbound(chat, TEAMMATE, "hey Cedar")
+        await fake.inbound(chat, TEAMMATE, "hey Juniper")
         await eventually(lambda: delivered)
-        assert delivered == [("hey Cedar", {"from": "Alex", "chat": chat})]
+        assert delivered == [("hey Juniper", {"from": "Alex", "chat": chat})]
     run_bridge(scenario)
 
 
@@ -493,11 +493,11 @@ def test_an_answer_to_a_chat_started_while_the_socket_is_down_is_caught_up_on_re
     async def scenario(fake, bridge, delivered):
         monkeypatch.setattr(plow_chat, "RECONNECT_DELAY", 0.5)
         await fake.drop_sockets()  # nobody hears the echo or the answer live
-        fake.answer = (TEAMMATE, "hey Cedar")  # in before the bridge reads the new chat back
+        fake.answer = (TEAMMATE, "hey Juniper")  # in before the bridge reads the new chat back
         chat = (await bridge.start_chat([TEAMMATE], "hi Alex")).removeprefix("started ")
         fake.add(chat, TEAMMATE, "and later")
         await eventually(lambda: delivered)
-        assert delivered == [("hey Cedar\n\nand later", {"from": "Alex", "chat": chat})]
+        assert delivered == [("hey Juniper\n\nand later", {"from": "Alex", "chat": chat})]
     run_bridge(scenario)
 
 
@@ -551,12 +551,12 @@ def test_an_answer_to_a_new_chat_whose_first_read_fails_is_caught_up_on_reconnec
     async def scenario(fake, bridge, delivered):
         monkeypatch.setattr(plow_chat, "RECONNECT_DELAY", 0.5)
         await fake.drop_sockets()
-        fake.answer = (TEAMMATE, "hey Cedar")
+        fake.answer = (TEAMMATE, "hey Juniper")
         fake.flaky.add("cht_started0")  # Plow sends, then the bridge's first read of the chat fails
         with pytest.raises(httpx.HTTPStatusError):
             await bridge.start_chat([TEAMMATE], "hi Alex")
         await eventually(lambda: delivered)
-        assert delivered == [("hey Cedar", {"from": "Alex", "chat": "cht_started0"})]
+        assert delivered == [("hey Juniper", {"from": "Alex", "chat": "cht_started0"})]
     run_bridge(scenario)
 
 
@@ -609,9 +609,9 @@ def test_the_reviewer_sees_which_file_was_sent_not_just_that_one_was():
         bridge.reviewer = reviewing("SEND", prompts)
         await fake.inbound(HOME, OWNER, "can you share the log?")
         await eventually(lambda: delivered)
-        fake.add(HOME, None, "", files=[("cedar.vcf", b"BEGIN:VCARD")])
+        fake.add(HOME, None, "", files=[("juniper.vcf", b"BEGIN:VCARD")])
         assert (await bridge.reply(HOME, "will do once it's cleared")).startswith("sent")
-        assert "you: (cedar.vcf)" in prompts[0]
+        assert "you: (juniper.vcf)" in prompts[0]
     run_bridge(scenario)
 
 
@@ -621,10 +621,10 @@ REFUSED = "not sent: a text to the head chef names the Swarm agent you consulted
 @pytest.mark.parametrize("gate, kwargs, outcome", [
     (False, {}, "can I mint the invite?"),
     (True, {}, REFUSED),
-    (True, {"consulted": "@cedar:swarm.example"}, "can I mint the invite?\n\n— with cedar"),
+    (True, {"consulted": "@juniper:swarm.example"}, "can I mint the invite?\n\n— with juniper"),
     (True, {"consulted": "@line:swarm.example"}, REFUSED),
     (True, {"consulted": "@owner:swarm.example"}, REFUSED),
-    (True, {"consulted": "Cedar"}, REFUSED),
+    (True, {"consulted": "Juniper"}, REFUSED),
     (True, {"dangerously_skip_attaching_a_priority": True, "priority": "!room/p1"}, "can I mint the invite?"),
 ], ids=["gate-off", "none-named", "consulted", "itself", "the-owner", "not-a-user-id", "skip-flag"])
 def test_a_text_to_the_owner_alone_names_the_agent_consulted_first(gate, kwargs, outcome):
@@ -675,7 +675,7 @@ def test_start_chat_and_send_file_are_reviewed_too(shot):
         await eventually(lambda: delivered)
         assert (await bridge.start_chat([TEAMMATE], "hi Alex")).startswith("not sent: a reviewer held it")
         assert (await bridge.send_file(HOME, [str(shot)], "the build")).startswith("not sent: a reviewer held it")
-        assert (await bridge.reply(HOME, "the build", consulted="@cedar:x")).startswith("not sent: `consulted` credits")
+        assert (await bridge.reply(HOME, "the build", consulted="@juniper:x")).startswith("not sent: `consulted` credits")
         assert fake.started == [] and fake.sent == []
         assert ["hi Alex" in prompts[0], "the build" in prompts[1]] == [True, True]
         assert "Jordan: Tuesday's out" in prompts[0]  # start_chat reviews against the chat Plow will adopt
@@ -738,7 +738,7 @@ def test_a_text_landing_while_the_reviewer_thinks_stops_the_send():
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with zelda"}, True),
     ("sous", {"room": "@owner:x", "mentions": ["@zelda:x"], "text": "ask zelda\n\n— with zelda"}, True),
     ("sous", {"room": "@owner:x", "text": "retry\n\n— with zelda"}, True),
-    ("sous", {"room": "@owner:x", "text": "merged\n\n— with cedar"}, True),
+    ("sous", {"room": "@owner:x", "text": "merged\n\n— with juniper"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with owner"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with Owner"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with Fake"}, True),
@@ -748,7 +748,7 @@ def test_a_text_landing_while_the_reviewer_thinks_stops_the_send():
     ("sous", {"room": "!dmOther", "text": "merged\n\n— with zelda"}, False),
     ("sous", {"room": "!notIn", "text": "merged\n\n— with zelda"}, False),
     ("dev", {"room": "@owner:x", "text": "merged\n\n— with dev"}, True),
-    ("dev", {"room": "@owner:x", "text": "merged\n\n— with cedar"}, False),
+    ("dev", {"room": "@owner:x", "text": "merged\n\n— with juniper"}, False),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with Aspen"}, False),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with quill"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with maple"}, False),
@@ -782,15 +782,15 @@ def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, mon
         entry(1, "assistant", sent("!dmAspen", "a call for you", id="t2")),
         entry(1, "assistant", sent("!group", "hi all", id="t3")),
         entry(1, "assistant", sent("!dmOwner", "an earlier update", id="t5")),
-        entry(1, "assistant", sent("@maple:x", "can you look?", id="t4", tool="mcp__swarm-cedar__send")),
+        entry(1, "assistant", sent("@maple:x", "can you look?", id="t4", tool="mcp__swarm-juniper__send")),
         entry(1, "assistant", sent("@owner:x", "ask zelda?\n\n— with zelda", ["@zelda:x"], id="t1")),
         entry(1, "user", [{"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": "not sent"}]),
-        {"type": "attachment", "timestamp": now.isoformat(), "attachment": {"prompt": inbound("@cedar:x", "Cedar")}},
+        {"type": "attachment", "timestamp": now.isoformat(), "attachment": {"prompt": inbound("@juniper:x", "Juniper")}},
         entry(0, "assistant", sent(send["room"], send["text"], send.get("mentions", ()))),  # the send being gated
     ]) + "\n")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    rooms = {"!dmOwner": ["@cedar:x", "@owner:x"], "!dmOther": ["@cedar:x", "@pat:x"], "!dmCook": ["@dev:x", "@owner:x"],
-             "!dmAspen": ["@cedar:x", "@r7q2k9:x"], "!group": ["@cedar:x", "@pat:x", "@quill:x"]}
+    rooms = {"!dmOwner": ["@juniper:x", "@owner:x"], "!dmOther": ["@juniper:x", "@pat:x"], "!dmCook": ["@dev:x", "@owner:x"],
+             "!dmAspen": ["@juniper:x", "@r7q2k9:x"], "!group": ["@juniper:x", "@pat:x", "@quill:x"]}
 
     def joined(account, path):
         if path.startswith("/profile/"):
@@ -800,7 +800,7 @@ def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, mon
             raise HTTPError(path, 403, "not in the room", None, None)
         return {"joined": dict.fromkeys(rooms[room], {})}
     monkeypatch.setattr(plow_chat, "matrix_get", joined)
-    (tmp_path / "cred.json").write_text(json.dumps({"user_id": "@cedar:x"}))
+    (tmp_path / "cred.json").write_text(json.dumps({"user_id": "@juniper:x"}))
     swarm = plow_chat.state_dir("boss") / "swarm"
     swarm.mkdir(parents=True)
     (swarm / "credential.json").symlink_to(tmp_path / "cred.json")
@@ -855,7 +855,7 @@ def test_an_expired_claude_login_tells_the_owner_once_until_a_turn_ends_normally
 
 
 def test_the_sous_is_told_the_name_on_its_lines_contact_card():
-    """People text the agent by its line's persona (the fake's line is Cedar), so the
+    """People text the agent by its line's persona (the fake's line is Juniper), so the
     plow-chat server's instructions, which reach the sous's system prompt, name it."""
     async def main():
         base_url, server = await FakePlow().serve()
@@ -865,4 +865,4 @@ def test_the_sous_is_told_the_name_on_its_lines_contact_card():
         finally:
             server.should_exit = True
     _, options = reply_server("plow-chat", "Plow chat (iMessage)", None, instructions=asyncio.run(main()))
-    assert "contact card named Cedar, so Cedar is your name" in options.instructions
+    assert "contact card named Juniper, so Juniper is your name" in options.instructions

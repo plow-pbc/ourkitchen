@@ -1057,13 +1057,13 @@ class TestStatusPreservationAcrossNonStopWriters:
         (tmp_path / ".claude.json").write_text(json.dumps({"numStartups": 3, "projects": {"/other": {"x": 1}}}))
         args = self._fake_tc(tmp_path, monkeypatch, "claude")
         cmd_hire(args)
-        assert mock_spawn.call_args.kwargs["cwd"] == "/home/u/Hacking/plow3"
+        assert mock_spawn.call_args.kwargs["cwd"] == "/home/u/kitchen-slots/plow3"
         # The record names the slot until clock-out, which is what keeps tc off it.
-        assert json.loads((tmp_path / "cooks" / "eng.json").read_text())["cwd"] == "/home/u/Hacking/plow3"
+        assert json.loads((tmp_path / "cooks" / "eng.json").read_text())["cwd"] == "/home/u/kitchen-slots/plow3"
         assert (tmp_path / "argv").read_text() == "claim plow risotto/eng\n"
         assert json.loads((tmp_path / ".claude.json").read_text()) == {
             "numStartups": 3,
-            "projects": {"/other": {"x": 1}, "/home/u/Hacking/plow3": {"hasTrustDialogAccepted": True}},
+            "projects": {"/other": {"x": 1}, "/home/u/kitchen-slots/plow3": {"hasTrustDialogAccepted": True}},
         }
 
         mock_spawn.reset_mock()
@@ -1082,9 +1082,9 @@ class TestStatusPreservationAcrossNonStopWriters:
         account, then is asked to join that account's rooms; Codex is refused."""
         mock_state.return_value = tmp_path
         monkeypatch.setenv("HOME", str(tmp_path))
-        credential = tmp_path / ".swarm/accounts/swarm.example.com/cedar/credential.json"
+        credential = tmp_path / ".swarm/accounts/swarm.example.com/juniper/credential.json"
         credential.parent.mkdir(parents=True)
-        credential.write_text(json.dumps({"user_id": "@cedar:c", "homeserver": "https://c", "access_token": "t"}))
+        credential.write_text(json.dumps({"user_id": "@juniper:c", "homeserver": "https://c", "access_token": "t"}))
         (tmp_path / "cooks").mkdir()
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
@@ -1093,18 +1093,18 @@ class TestStatusPreservationAcrossNonStopWriters:
         monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
         args = argparse.Namespace(kitchen=None, name="relay", backend="claude", project=str(tmp_path), slot=None,
                                   role=None, effort=None, clean_room=False, with_skill=[], model=None,
-                                  swarm_account="@cedar:c")
+                                  swarm_account="@juniper:c")
         with patch("claude_kitchen.cli.spawn_window", return_value=True) as spawn, \
              patch("claude_kitchen.cli.swarm_rooms", return_value=["#general:c"]), \
              patch("claude_kitchen.cli.join_swarm") as join:
             cmd_hire(args)
         config = json.loads(spawn.call_args.kwargs["mcp_config"].read_text())
         assert config == {"mcpServers": {"swarm": {"command": str(bin_dir / "swarm"),
-                                                   "args": ["mcp", "claude", "--account", "@cedar:c"]}}}
+                                                   "args": ["mcp", "claude", "--account", "@juniper:c"]}}}
         # Outside the cooks/*.json namespace, which sweep and brigade read as cook records.
         assert spawn.call_args.kwargs["mcp_config"].name == "relay.mcp"
         kitchen, window, account, prompt = join.call_args.args
-        assert (window, account) == ("relay", "@cedar:c") and "#general:c" in prompt
+        assert (window, account) == ("relay", "@juniper:c") and "#general:c" in prompt
 
         args.name, args.backend = "relay2", "codex"
         with pytest.raises(SystemExit, match="--swarm-account is for Claude cooks"):
@@ -1119,7 +1119,7 @@ class TestStatusPreservationAcrossNonStopWriters:
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
         tc = bin_dir / "tc"
-        tc.write_text(f'#!/bin/sh\necho "$@" > {tmp_path}/argv\n[ "$2" = none ] && exit 1\necho /home/u/Hacking/plow3\n')
+        tc.write_text(f'#!/bin/sh\necho "$@" > {tmp_path}/argv\n[ "$2" = none ] && exit 1\necho /home/u/kitchen-slots/plow3\n')
         tc.chmod(0o755)
         monkeypatch.setattr("claude_kitchen.cli.TC", tc)
         return argparse.Namespace(kitchen="risotto", name="eng", backend=backend, project=None,
@@ -1141,15 +1141,15 @@ class TestStatusPreservationAcrossNonStopWriters:
         args = self._fake_tc(tmp_path, monkeypatch, "codex")
         (tmp_path / ".codex").mkdir()
         config = tmp_path / ".codex" / "config.toml"
-        config.write_text('model = "x"\n\n[projects."/home/u/Hacking/plow33"]\ntrust_level = "trusted"\n')
+        config.write_text('model = "x"\n\n[projects."/home/u/kitchen-slots/plow33"]\ntrust_level = "trusted"\n')
         cmd_hire(args)
         cmd_hire(args)
         assert tomllib.loads(config.read_text())["projects"] == {
-            "/home/u/Hacking/plow33": {"trust_level": "trusted"}, "/home/u/Hacking/plow3": {"trust_level": "trusted"}}
+            "/home/u/kitchen-slots/plow33": {"trust_level": "trusted"}, "/home/u/kitchen-slots/plow3": {"trust_level": "trusted"}}
 
-        config.write_text('[projects."/home/u/Hacking/plow3"]\ntrust_level = "untrusted"\n')
+        config.write_text('[projects."/home/u/kitchen-slots/plow3"]\ntrust_level = "untrusted"\n')
         cmd_hire(args)
-        assert tomllib.loads(config.read_text())["projects"] == {"/home/u/Hacking/plow3": {"trust_level": "untrusted"}}
+        assert tomllib.loads(config.read_text())["projects"] == {"/home/u/kitchen-slots/plow3": {"trust_level": "untrusted"}}
 
     def test_concurrent_slot_hires_each_keep_their_trust_grant(self, tmp_path):
         """Kitchens hiring at once must not drop each other's trust grant: a lost
@@ -2387,25 +2387,24 @@ class TestCmdSetupExit:
 class TestCmdSetupHooks:
     @patch("claude_kitchen.cli.subprocess.run")
     def test_takes_over_its_hooks_without_clobbering(self, mock_run, monkeypatch, tmp_path, capsys):
-        """kitchen setup owns its hook entries: the old ~/.claude/hooks copy of a hook
-        it ships is dropped, each owned entry appears exactly once, and everything
-        else (keys, other hooks, a hook sharing a group with an old one) survives."""
+        """kitchen setup owns its hook entries: the legacy roborev installer's copy of a
+        hook it ships is dropped, each owned entry appears exactly once, and everything
+        else (keys, other hooks, the user's own hook in ~/.claude/hooks, even one named
+        like kitchen's) survives."""
         mock_run.return_value = MagicMock(returncode=0, stdout="2.1.99 (claude)\n", stderr="")
         monkeypatch.setenv("HOME", str(tmp_path))
         settings = tmp_path / ".claude" / "settings.json"
         settings.parent.mkdir()
         from claude_kitchen.cli import HOOKS as HOOKS_DIR
-        old = lambda name: {"type": "command", "command": f"$HOME/.claude/hooks/{name}"}
         mine = {"type": "command", "command": "$HOME/bin/my-prompt-hook"}
-        gate = {"type": "command", "command": "$HOME/.claude/hooks/knightwatch-inflight-push-gate.py"}  # not kitchen's
+        gate = {"type": "command", "command": "$HOME/.claude/hooks/roborev-pre-push-gate.py"}  # the user's own, not kitchen's
         original = {
             "model": "opus",
             "permissions": {"allow": ["Bash(ls:*)", "mcp__playwright__browser_snapshot"]},
             "hooks": {
                 "Stop": [{"hooks": [{"type": "command", "command": "kitchen hook"}]}],
-                "UserPromptSubmit": [{"hooks": [old("capture-prompt.sh"), mine]}],
-                "PreToolUse": [{"matcher": "Bash", "hooks": [old("roborev-pre-push-gate.py")]},
-                               # the legacy roborev installer's copy (XDG-relocatable dir)
+                "UserPromptSubmit": [{"hooks": [mine]}],
+                "PreToolUse": [# the legacy roborev installer's copy (XDG-relocatable dir)
                                {"matcher": "Bash", "hooks": [{"type": "command", "command": "/home/u/xdg/roborev/claude-hooks/roborev-pre-checkout-gate.py"}]},
                                {"matcher": "Bash", "hooks": [gate]},
                                # the same canonical entry twice in one group: the second copy goes
@@ -2425,14 +2424,14 @@ class TestCmdSetupHooks:
         data = json.loads(settings.read_text())
         commands = [h["command"] for groups in data["hooks"].values() for g in groups for h in g["hooks"]]
         assert data["model"] == "opus"
-        assert not any(c.startswith("$HOME/.claude/hooks/") and "knightwatch" not in c for c in commands)
         assert not any("/roborev/claude-hooks/" in c for c in commands)
         assert mine["command"] in commands and gate["command"] in commands
         for name in ("capture-prompt.sh", "capture-answer.sh", "roborev-pre-commit-context.py",
                      "roborev-pre-push-gate.py", "roborev-pre-checkout-gate.py"):
             assert commands.count(str(HOOKS / name)) == 1, name
         assert commands.count("kitchen hook") == 3  # Stop, StopFailure + UserPromptSubmit
-        push = [h for g in data["hooks"]["PreToolUse"] for h in g["hooks"] if h["command"].endswith("roborev-pre-push-gate.py")]
+        push = [h for g in data["hooks"]["PreToolUse"] for h in g["hooks"] if h["command"].startswith(str(HOOKS))
+                and h["command"].endswith("roborev-pre-push-gate.py")]
         assert push == [{"type": "command", "command": str(HOOKS / "roborev-pre-push-gate.py"), "timeout": 660}]
         assert settings.stat().st_mode & 0o777 == 0o640
         backups = list(settings.parent.glob("settings.json.bak-kitchen-*"))
@@ -2440,7 +2439,7 @@ class TestCmdSetupHooks:
         assert data["permissions"]["allow"] == [
             "Bash(ls:*)", "mcp__playwright__browser_snapshot", "mcp__playwright__browser_take_screenshot"]
         out = capsys.readouterr().out
-        assert "-capture-prompt.sh" in out and "-roborev-pre-push-gate.py" in out
+        assert "-roborev-pre-checkout-gate.py" in out and "-roborev-pre-push-gate.py" in out
 
 
 class TestCmdSetupStatusline:
@@ -3161,10 +3160,10 @@ class TestTicketSous:
 
 
 class TestLinkInstalls:
-    def test_creates_retargets_skips_and_reruns_clean(self, tmp_path):
+    def test_creates_skips_and_reruns_clean(self, tmp_path):
         from claude_kitchen.cli import _link_installs
         pkg = tmp_path / "pkg"
-        for name in ("fresh", "moved", "mine", "theirs"):
+        for name in ("fresh", "mine", "theirs"):
             (pkg / "skills" / name).mkdir(parents=True)
         (pkg / "skills" / "README.md").write_text("not a skill")
         (pkg / "tc").mkdir()
@@ -3172,33 +3171,23 @@ class TestLinkInstalls:
         home = tmp_path / "home"
         claude, agents, local_bin = home / ".claude" / "skills", home / ".agents" / "skills", home / ".local" / "bin"
         claude.mkdir(parents=True)
-        cc = tmp_path / "services" / "code-config"
-        (claude / "moved").symlink_to(cc / "claude" / "skills" / "moved")
         (claude / "mine").mkdir()  # a real directory: never touched
-        (claude / "theirs").symlink_to(cc / "claude" / "other" / "theirs")  # code-config, but not its skills dir
-        (claude / ".moved.kitchen-tmp").symlink_to(tmp_path / "stale")  # an interrupted run's leftover
-        agents.mkdir(parents=True)
-        (agents / "moved").symlink_to(cc / "codex" / "skills" / "moved")
-        local_bin.mkdir(parents=True)
-        (local_bin / "tc").symlink_to(cc / "tc")
+        (claude / "theirs").symlink_to(tmp_path / "elsewhere" / "theirs")  # a link to something else: never touched
 
         first = _link_installs(pkg, home)
 
         assert (claude / "fresh").resolve() == pkg / "skills" / "fresh"
         assert (agents / "fresh").resolve() == pkg / "skills" / "fresh"
-        assert os.readlink(claude / "moved") == str(pkg / "skills" / "moved")
-        assert os.readlink(agents / "moved") == str(pkg / "skills" / "moved")
         assert os.readlink(local_bin / "tc") == str(pkg / "tc" / "tc")
         assert (claude / "mine").is_dir() and not (claude / "mine").is_symlink()
-        assert os.readlink(claude / "theirs") == str(cc / "claude" / "other" / "theirs")
+        assert os.readlink(claude / "theirs") == str(tmp_path / "elsewhere" / "theirs")
         assert not (claude / "README.md").exists()
         assert sum(l.startswith("skipped") for l in first) == 2
-        assert sum(l.startswith("retargeted") for l in first) == 3
+        assert sum(l.startswith("linked") for l in first) == 5
 
         second = _link_installs(pkg, home)
-        assert [l.split()[0] for l in second].count("ok") == 7
+        assert [l.split()[0] for l in second].count("ok") == 5
         assert sum(l.startswith("skipped") for l in second) == 2
-        assert not list(claude.glob(".*kitchen-tmp"))
 
 
 def test_install_claude_hooks_drops_a_duplicate_in_otherwise_canonical_settings(tmp_path):
@@ -3256,26 +3245,6 @@ def test_windows_sous_is_told_what_runs_there(monkeypatch):
     assert windows.startswith(unix) and "## On Windows" not in unix
     extra = windows[len(unix):]
     assert "--slot" in extra and "--project" in extra and "kitchen open --resume" in extra
-
-
-def test_windows_setup_retargets_a_skill_junction(tmp_path, monkeypatch):
-    """A junction is a directory to Windows, so os.replace can't move a new link onto it: setup removes the old
-    link (never what it points at) and makes it again, leaving no temporary link behind."""
-    import claude_kitchen.cli as cli
-    monkeypatch.setattr(cli, "WINDOWS", True)
-    monkeypatch.setattr(cli, "_link", lambda dest, src: dest.symlink_to(src))  # a junction's stand-in here
-    def replace(*a):
-        raise PermissionError("[WinError 5] Access is denied")  # what Windows says moving onto a junction
-    monkeypatch.setattr(cli.os, "replace", replace)
-    monkeypatch.setattr(cli.os, "rmdir", os.unlink)  # rmdir removes a junction on Windows, as unlink a symlink here
-    old = tmp_path / "code-config" / "skills" / "x"
-    new = tmp_path / "kitchen" / "skills" / "x"
-    old.mkdir(parents=True); new.mkdir(parents=True)
-    dest = tmp_path / "home" / "x"
-    dest.parent.mkdir(); dest.symlink_to(old)
-    assert cli._place_link(new, dest, ("code-config/skills/x",)) == f"retargeted {dest} (was {old})"
-    assert Path(os.readlink(dest)) == new and old.is_dir()
-    assert [p.name for p in dest.parent.iterdir()] == ["x"]
 
 
 def test_windows_hire_refuses_before_writing_anything(tmp_path, monkeypatch):

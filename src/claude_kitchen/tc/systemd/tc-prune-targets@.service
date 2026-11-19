@@ -1,5 +1,5 @@
 [Unit]
-Description=Delete target/ in idle ~/Hacking/%i slots
+Description=Delete target/ in idle ~/kitchen-slots/%i slots
 
 [Service]
 Type=oneshot

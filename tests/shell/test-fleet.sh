@@ -6,14 +6,14 @@ export KITCHEN_FLEET_HOSTS="$HERE/fixtures/fleet-hosts" KITCHEN_FLEET_REPOS="$HE
 . "$HERE/../../src/claude_kitchen/tc/lib/fleet.sh"
 
 # fleet_repo: tag → repo, repo → repo, unknown → passthrough
-assert_eq "knightwatch-reviewer" "$(fleet_repo kwr)"                  "repo from tag"
-assert_eq "knightwatch-reviewer" "$(fleet_repo knightwatch-reviewer)" "repo from dir name"
+assert_eq "review-bot" "$(fleet_repo rb)"                  "repo from tag"
+assert_eq "review-bot" "$(fleet_repo review-bot)" "repo from dir name"
 assert_eq "newthing"             "$(fleet_repo newthing)"            "repo unknown passthrough"
 
 # fleet_tag: tag → tag, repo → tag, unknown → dir name
-assert_eq "kwr"      "$(fleet_tag kwr)"                  "tag from tag"
-assert_eq "kwr"      "$(fleet_tag knightwatch-reviewer)" "tag from dir name"
-assert_eq "cc"       "$(fleet_tag code-config)"          "tag cc"
+assert_eq "rb"      "$(fleet_tag rb)"                  "tag from tag"
+assert_eq "rb"      "$(fleet_tag review-bot)" "tag from dir name"
+assert_eq "df"       "$(fleet_tag dotfiles)"          "tag df"
 assert_eq "newthing" "$(fleet_tag newthing)"             "tag unknown → dir name"
 
 # no fleet-repos file: every repo is named by its dir
@@ -68,11 +68,11 @@ assert_contains "$_err" "(alias: hc)"   "unknown host: lists aliases"
 # fleet_session: <tag><N>-<host>
 assert_eq "app0-hosta"  "$(fleet_session my-app 0 hosta)"               "session slot 0"
 assert_eq "app4-hostb"  "$(fleet_session app 4 hostb)"                  "session slot 4"
-assert_eq "kwr3-hosta"  "$(fleet_session knightwatch-reviewer 3 hosta)" "session from dir name"
+assert_eq "rb3-hosta"  "$(fleet_session review-bot 3 hosta)" "session from dir name"
 
-# fleet_dir: ~/Hacking/<repo><N> (tilde left literal for remote expansion)
-assert_eq '~/Hacking/my-app0'               "$(fleet_dir app 0)" "dir slot 0"
-assert_eq '~/Hacking/my-app4'               "$(fleet_dir my-app 4)" "dir slot 4"
-assert_eq '~/Hacking/knightwatch-reviewer2' "$(fleet_dir kwr 2)"  "dir from tag"
+# fleet_dir: ~/kitchen-slots/<repo><N> (tilde left literal for remote expansion)
+assert_eq '~/kitchen-slots/my-app0'               "$(fleet_dir app 0)" "dir slot 0"
+assert_eq '~/kitchen-slots/my-app4'               "$(fleet_dir my-app 4)" "dir slot 4"
+assert_eq '~/kitchen-slots/review-bot2' "$(fleet_dir rb 2)"  "dir from tag"
 
 assert_summary

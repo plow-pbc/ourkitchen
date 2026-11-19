@@ -76,7 +76,7 @@ def test_container_run_uses_the_locked_down_boundary(tmp_path, monkeypatch):
     assert "--restart" not in argv
     assert argv[argv.index("--user") + 1] == "1000:1000"
     assert argv[argv.index("--network") + 1] == "agents"
-    assert argv[argv.index("--label") + 1] == "com.srosro.kitchen.name=acme-scout"
+    assert argv[argv.index("--label") + 1] == "co.plow.kitchen.name=acme-scout"
     assert "--privileged" not in argv
     assert "--net=host" not in argv and "--pid=host" not in argv and "--ipc=host" not in argv
     specs = [argv[i + 1] for i, value in enumerate(argv) if value == "--mount"]

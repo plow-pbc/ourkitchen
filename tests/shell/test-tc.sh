@@ -9,25 +9,25 @@ TC="$HERE/../../src/claude_kitchen/tc/tc"
 out=$(TC_DRYRUN=1 "$TC" plow 0 hosta)
 assert_contains "$out" "host=hosta"        "slot 0: host"
 assert_contains "$out" "-s plow0-hosta"    "slot 0: session name"
-assert_contains "$out" "d=~/Hacking/plow0;" "slot 0: dir assign"
+assert_contains "$out" "d=~/kitchen-slots/plow0;" "slot 0: dir assign"
 assert_contains "$out" "tmux new -A"        "slot 0: tmux attach-or-create"
 
 out=$(TC_DRYRUN=1 "$TC" plow 4 hostb)
 assert_contains "$out" "host=hostb"           "slot 4: host"
 assert_contains "$out" "-s plow4-hostb"       "slot 4: session"
-assert_contains "$out" "d=~/Hacking/plow4;" "slot 4: dir"
+assert_contains "$out" "d=~/kitchen-slots/plow4;" "slot 4: dir"
 
 # tag resolves to canonical session + full dir
-out=$(TC_DRYRUN=1 "$TC" kwr 2 hosta)
-assert_contains "$out" "-s kwr2-hosta"                      "tag: session"
-assert_contains "$out" "d=~/Hacking/knightwatch-reviewer2;" "tag: dir"
+out=$(TC_DRYRUN=1 "$TC" rb 2 hosta)
+assert_contains "$out" "-s rb2-hosta"                      "tag: session"
+assert_contains "$out" "d=~/kitchen-slots/review-bot2;" "tag: dir"
 
 # host alias canonicalizes: both spellings must yield ONE session name, else the
 # same slot forks two tmux sessions depending on how the host was typed.
 out=$(TC_DRYRUN=1 "$TC" plow 5 hc)
 assert_contains "$out" "host=hostc-laptop"     "alias: canonical ssh target"
 assert_contains "$out" "-s plow5-hostc-laptop" "alias: canonical session name"
-assert_contains "$out" "d=~/Hacking/plow5;"        "alias: dir"
+assert_contains "$out" "d=~/kitchen-slots/plow5;"        "alias: dir"
 
 # the other two entry points canonicalize too — `setup` is the one that clones ten
 # checkouts onto the target, so an un-canonicalized alias there misses self-loopback.
@@ -49,7 +49,7 @@ TC_DRYRUN=1 "$TC" plow 10 hosta >/dev/null 2>&1; assert_rc 2 $? "out-of-range sl
 
 # safe-name guard: metacharacter repo args are rejected (rc 2) before any command builds
 TC_DRYRUN=1 "$TC" 'plow;touch x' 0 hosta >/dev/null 2>&1; assert_rc 2 $? "connect: rejects metachar repo"
-TC_DRYRUN=1 "$TC" setup 'kwr;touch x' hosta >/dev/null 2>&1; assert_rc 2 $? "setup: rejects metachar repo"
+TC_DRYRUN=1 "$TC" setup 'rb;touch x' hosta >/dev/null 2>&1; assert_rc 2 $? "setup: rejects metachar repo"
 
 # setup: credential-bearing URL refused (rc 2); plain remotes allowed
 TC_DRYRUN=1 "$TC" setup plow hosta 'https://tok@github.com/x.git' >/dev/null 2>&1; assert_rc 2 $? "setup: rejects credential URL"
@@ -72,7 +72,7 @@ assert_contains "$out" "setup-url-given=no" "setup: no url"
 # skipped on re-run rather than aborting with "different origin". The fake git
 # returns the .git-suffixed form for *2 and the trailing-slash form for *3.
 SBX=$(mktemp -d)
-mkdir -p "$SBX/Hacking/plow/.git" "$SBX/bin"
+mkdir -p "$SBX/kitchen-slots/plow/.git" "$SBX/bin"
 cat >"$SBX/bin/git" <<'EOF'
 #!/usr/bin/env bash
 dir=.
@@ -102,6 +102,14 @@ assert_contains "$out" "skip:  plow4"            "setup re-run: normalized origi
 assert_not_contains "$out" "different origin"    "setup re-run: no false origin-mismatch on cosmetic drift"
 rm -rf "$SBX"
 
+# setup on a host that has no slots folder yet makes it, with an explicit url
+SBX=$(mktemp -d); mkdir -p "$SBX/bin"
+printf '#!/usr/bin/env bash\n[ "$1" = clone ] && mkdir -p "$3/.git"\n' >"$SBX/bin/git"; chmod +x "$SBX/bin/git"
+printf 'git@example.com:fake/plow\n' | HOME="$SBX" PATH="$SBX/bin:$PATH" TC_REPO=plow bash -c "$snippet" >/dev/null 2>&1
+assert_rc 0 $? "setup run: a host with no slots folder yet"
+assert_eq 1 "$(ls -d "$SBX"/kitchen-slots/plow9/.git 2>/dev/null | wc -l | tr -d ' ')" "setup run: slots land in ~/kitchen-slots"
+rm -rf "$SBX"
+
 # new: ships the picker (_tcp) inline, runs it on the host, splits "<sess> <dir>"
 out=$(TC_DRYRUN=1 "$TC" new plow hosta)
 assert_contains "$out" "host=hosta"                  "new: host"
@@ -111,9 +119,9 @@ assert_contains "$out" 'tmux new -A -s "${out%% *}"'  "new: splits session"
 assert_contains "$out" 'c "${out#* }"'                "new: splits dir"
 
 # setup: tag resolves to repo dir name; raw url is redacted from diagnostics
-url="git@github.com:example/knightwatch-reviewer.git"
-out=$(TC_DRYRUN=1 "$TC" setup kwr hostb "$url")
-assert_contains "$out"     "setup-repo=knightwatch-reviewer" "setup: tag→repo"
+url="git@github.com:example/review-bot.git"
+out=$(TC_DRYRUN=1 "$TC" setup rb hostb "$url")
+assert_contains "$out"     "setup-repo=review-bot" "setup: tag→repo"
 assert_contains "$out"     "setup-url-given=yes"             "setup: url given"
 assert_not_contains "$out" "$url"                            "setup: raw url not echoed"
 

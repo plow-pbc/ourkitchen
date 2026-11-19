@@ -1,4 +1,4 @@
 # <tag> <repo-dir>
 app my-app
-kwr knightwatch-reviewer
-cc code-config
+rb review-bot
+df dotfiles

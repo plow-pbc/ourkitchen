@@ -319,7 +319,7 @@ def test_discord_server_refuses_a_plugin_copy_that_is_not_the_reviewed_one(tmp_p
         exec_discord_server()
 
 
-ACCOUNT = "@cedar:plow.swarm.example.com"
+ACCOUNT = "@juniper:plow.swarm.example.com"
 
 
 ROOMS = [{"account": "@other:x", "rooms": ["#general:x"]},
@@ -339,7 +339,7 @@ def fake_swarm(tmp_path, build=155, accounts=ROOMS):
 
 def link_account(tmp_path, homeserver="https://plow.swarm.example.com"):
     """The sous's account as `swarm accounts add` keeps it, linked into its kitchen."""
-    credential = tmp_path / ".swarm/accounts/plow.swarm.example.com/cedar/credential.json"
+    credential = tmp_path / ".swarm/accounts/plow.swarm.example.com/juniper/credential.json"
     credential.parent.mkdir(parents=True)
     credential.write_text(json.dumps({"user_id": ACCOUNT, "homeserver": homeserver, "access_token": "tok"}))
     link = state_dir("boss") / "swarm" / "credential.json"

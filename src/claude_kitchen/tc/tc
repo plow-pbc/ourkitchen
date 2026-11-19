@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tc — fleet tmux connect + checkout provisioning.
-#   tc <repo> <N> <host>         connect to slot ~/Hacking/<repo><N> (N: 0-9)
+#   tc <repo> <N> <host>         connect to slot ~/kitchen-slots/<repo><N> (N: 0-9)
 #   tc new <repo> <host>         connect to next free workspace (0..9)
 #   tc setup <repo> <host> [url] provision <repo>0..<repo>9
 #   tc claim <repo> <branch> [N] claim+branch a free local slot, or exact slot N
@@ -88,7 +88,7 @@ tc_claim() { # tc_claim <repo-or-tag> <branch> [exact-slot]
   . "$TC_ROOT/lib/pick.sh"     # _tcp <repo-dir> <tag> <host>
   . "$TC_ROOT/lib/claim.sh"    # claim_slot / release_slot
   if [ -n "$exact" ]; then
-    dir=$HOME/Hacking/$repo$exact
+    dir=$HOME/kitchen-slots/$repo$exact
     [ -d "$dir/.git" ] || { echo "tc claim: $dir not found" >&2; return 1; }
     lock=$(claim_lock_path "$dir")
     claim_slot "$lock" || { echo "tc claim: $dir is already claimed" >&2; return 1; }
@@ -161,7 +161,7 @@ tc_prune_targets() { # tc_prune_targets <repo-or-tag>
   local repo dir lock why
   _safe_name "$1"; repo=$(fleet_repo "$1")
   . "$TC_ROOT/lib/pick.sh"; . "$TC_ROOT/lib/claim.sh"
-  for dir in "$HOME/Hacking/$repo"[0-9] "$HOME/Hacking/$repo"[0-9][0-9]; do
+  for dir in "$HOME/kitchen-slots/$repo"[0-9] "$HOME/kitchen-slots/$repo"[0-9][0-9]; do
     [ -d "$dir" ] || continue
     lock=$(claim_lock_path "$dir")
     if ! claim_slot "$lock"; then why=claimed
@@ -186,19 +186,19 @@ tc_prune_targets() { # tc_prune_targets <repo-or-tag>
 }
 
 # Provision snippet: repo via $TC_REPO env, url via stdin (kept out of argv).
-# Clones ~/Hacking/<repo>0..<repo>9 idempotently. With no url, origin resolves
-# from <repo>0, falling back to a legacy bare ~/Hacking/<repo> checkout (which
+# Clones ~/kitchen-slots/<repo>0..<repo>9 idempotently. With no url, origin resolves
+# from <repo>0, falling back to a legacy bare ~/kitchen-slots/<repo> checkout (which
 # setup otherwise leaves untouched).
 TC_PROVISION='
 set -e
 repo=$TC_REPO
 IFS= read -r url || url=
-cd "$HOME/Hacking"
+mkdir -p "$HOME/kitchen-slots"; cd "$HOME/kitchen-slots"
 if [ -z "$url" ]; then
   for c in "${repo}0" "$repo"; do
     if [ -d "$c/.git" ]; then url=$(git -C "$c" remote get-url origin); break; fi
   done
-  if [ -z "$url" ]; then echo "tc setup: no ~/Hacking/${repo}0 or ~/Hacking/$repo checkout and no git-url given" >&2; exit 1; fi
+  if [ -z "$url" ]; then echo "tc setup: no ~/kitchen-slots/${repo}0 or ~/kitchen-slots/$repo checkout and no git-url given" >&2; exit 1; fi
 fi
 case $url in
   http://*@*|https://*@*) echo "tc setup: refusing a credential-bearing origin URL — use an SSH remote" >&2; exit 1 ;;

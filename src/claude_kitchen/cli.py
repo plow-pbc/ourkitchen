@@ -608,7 +608,7 @@ def cmd_hire(args):
 
     # Clean-room codex cooks get a fresh, isolated CODEX_HOME (no memory,
     # AGENTS.md, plugin registry, or user config). Claude/gemini: None.
-    # --slot: the cook works in a free ~/Hacking/<repo><N> that `tc claim` locks
+    # --slot: the cook works in a free ~/kitchen-slots/<repo><N> that `tc claim` locks
     # and branches as <kitchen>/<cook>, so kitchen and tc hand out slots under one
     # lock; the cook record's cwd keeps it taken until clock-out.
     if args.slot:
@@ -1425,11 +1425,11 @@ def _install_claude_hooks(settings: Path) -> list[str]:
     added, seen = [], set()
 
     def keeps(ev, group, h):
-        """Drop an older copy (code-config's ~/.claude/hooks, or the legacy roborev
-        installer's .../roborev/claude-hooks), and any copy of an owned hook that isn't
-        the canonical entry (wrong matcher or timeout) or repeats one already kept."""
+        """Drop the legacy roborev installer's copy (.../roborev/claude-hooks), and any
+        copy of an owned hook that isn't the canonical entry (wrong matcher or timeout)
+        or repeats one already kept."""
         cmd = h.get("command") or ""
-        if any(cmd.endswith(d + m) for m in moved for d in ("/.claude/hooks/", "/roborev/claude-hooks/")):
+        if any(cmd.endswith("/roborev/claude-hooks/" + m) for m in moved):
             return False
         if cmd not in owned:
             return True
@@ -1469,26 +1469,13 @@ def _install_claude_hooks(settings: Path) -> list[str]:
     return added
 
 
-def _place_link(src: Path, dest: Path, moved_from: tuple[str, ...]) -> str:
-    """Point dest at src: create it when absent, retarget it when it points at the
-    copy src moved from (a path ending in one of moved_from), otherwise leave it
-    alone. Returns one report line. On Windows, where a symlink needs admin
+def _place_link(src: Path, dest: Path) -> str:
+    """Point dest at src: create it when absent, otherwise leave it alone.
+    Returns one report line. On Windows, where a symlink needs admin
     rights, the link is a directory junction."""
     if dest.is_symlink() or dest.is_junction():
         target = Path(os.readlink(dest).removeprefix("\\\\?\\"))
-        if target == src:
-            return f"ok {dest}"
-        if not any(target.as_posix().endswith("/" + m) for m in moved_from):
-            return f"skipped {dest}: links to {target}"
-        if WINDOWS:  # os.replace can't move onto a junction (a directory): remove the link, never its target, and relink
-            os.rmdir(dest)
-            _link(dest, src)
-        else:
-            tmp = dest.with_name(f".{dest.name}.kitchen-tmp")
-            tmp.unlink(missing_ok=True)  # left by an interrupted run
-            _link(tmp, src)
-            os.replace(tmp, dest)  # atomic: a reader never sees the link missing
-        return f"retargeted {dest} (was {target})"
+        return f"ok {dest}" if target == src else f"skipped {dest}: links to {target}"
     if dest.exists():
         return f"skipped {dest}: not a symlink"
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1506,14 +1493,12 @@ def _link(dest: Path, src: Path):
 
 def _link_installs(pkg: Path, home: Path) -> list[str]:
     """Link kitchen's skills into ~/.claude/skills (Claude) and ~/.agents/skills
-    (Codex), and its `tc` into ~/.local/bin. A link left by code-config, which
-    these moved from, is retargeted. Returns one line per link."""
+    (Codex), and its `tc` into ~/.local/bin. Returns one line per link."""
     report = [f"skipped {home / '.local' / 'bin' / 'tc'}: tc is a bash tool" if WINDOWS else
-              _place_link(pkg / "tc" / "tc", home / ".local" / "bin" / "tc", ("code-config/tc",))]
+              _place_link(pkg / "tc" / "tc", home / ".local" / "bin" / "tc")]
     for src in sorted(p for p in (pkg / "skills").iterdir() if p.is_dir()):
-        moved = (f"code-config/claude/skills/{src.name}", f"code-config/codex/skills/{src.name}")
         for root in (home / ".claude" / "skills", home / ".agents" / "skills"):
-            report.append(_place_link(src, root / src.name, moved))
+            report.append(_place_link(src, root / src.name))
     return report
 
 
@@ -1798,12 +1783,12 @@ def main():
     p_hire.add_argument("--kitchen", help="Target kitchen")
     where = p_hire.add_mutually_exclusive_group()
     where.add_argument("--project", help="Project path (defaults to cwd)")
-    where.add_argument("--slot", metavar="REPO", help="Work in a free ~/Hacking/<REPO><N> slot claimed with `tc claim`")
+    where.add_argument("--slot", metavar="REPO", help="Work in a free ~/kitchen-slots/<REPO><N> slot claimed with `tc claim`")
     p_hire.add_argument("--role", help="Role from src/claude_kitchen/roles/ (all backends)")
     p_hire.add_argument("--effort", help="Reasoning effort (low, medium, high, xhigh, max, ultra; support is backend/model-dependent, Claude maps ultra to max)")
     p_hire.add_argument("--model", choices=[*CLAUDE_MODELS, *CODEX_MODELS], help="Model for the cook: fable, sonnet, or opus (Claude cooks; passed to `claude --model` verbatim, resolving the latest model in that tier), or astra (Codex cooks; passed to `codex -m` as gpt-6-astra). Omit to use the account default.")
     p_hire.add_argument("--clean-room", action="store_true", help="Isolated eval hire (Claude or Codex): no memory, no plugin/skill startup injection, no role prompt. Sous supplies the one eval prompt via a ticket. (gemini not yet supported)")
-    p_hire.add_argument("--swarm-account", metavar="ID", help="Give the cook its own swarm server, bound to this account on this machine (e.g. @cedar:swarm.example.com), and have it join that account's rooms (Claude only)")
+    p_hire.add_argument("--swarm-account", metavar="ID", help="Give the cook its own swarm server, bound to this account on this machine (e.g. @juniper:swarm.example.com), and have it join that account's rooms (Claude only)")
     p_hire.add_argument("--with-skill", action="append", default=[], metavar="PATH", help="Load a custom skill/plugin dir into a --clean-room cook (repeatable; Claude only). Path needs a SKILL.md or .claude-plugin/plugin.json. Additive opt-in to the blank slate.")
 
     p_ticket = sub.add_parser("ticket", help="Send a ticket to a cook")
@@ -1875,16 +1860,6 @@ def main():
     p_approve.add_argument("account", help="The agent's Swarm id, @name:server")
     p_approve.add_argument("host", help="The host to allow, e.g. example.com")
 
-    p_hq = sub.add_parser("hq-room", help="Retire one HQ room for everyone, for good: IRREVERSIBLE (no undo; history kept, purge off)",
-                          description="Retire one HQ room for everyone. IRREVERSIBLE: its members are removed and nobody can get back in. "
-                                      "1) Send in that room, with swarm's send: 'Retire this room for good? <approver>, react 🗑️ to confirm.' "
-                                      "2) kitchen hq-room ask <room> --prompt <its event id>. "
-                                      "3) Within 30 minutes, once the approver (HQ_ROOM_APPROVER) reacts: kitchen hq-room retire <room> --asked-in <their reaction's event id>.")
-    p_hq.add_argument("action", choices=["ask", "retire"])
-    p_hq.add_argument("room", help="One HQ room: !roomid or #alias:server, the same form for ask and retire")
-    p_hq.add_argument("--prompt", help="ask: the event id ($...) of the retire prompt you sent in that room")
-    p_hq.add_argument("--asked-in", help="retire: the approver's 🗑️ reaction event id ($...) on that prompt")
-
     p_channel = sub.add_parser("channel-server", help="(internal) Run channel MCP server")
     p_channel.add_argument("kitchen", help="Kitchen name")
     p_plow = sub.add_parser("plow-chat-server", help="(internal) Run the plow-chat channel MCP server")
@@ -1935,13 +1910,6 @@ def main():
         cmd_roles(args)
     elif args.command == "approve-host":
         cmd_approve_host(args)
-    elif args.command == "hq-room":
-        from claude_kitchen.hq_room import invoke
-        result = invoke(args.action, args.room, (args.prompt if args.action == "ask" else args.asked_in) or "")
-        print(json.dumps(result, indent=2))
-        if args.action == "ask":
-            sys.exit(0 if args.prompt and result.get("prompt") == args.prompt else 1)
-        sys.exit(0 if result.get("status") == "complete" and not (result.get("error") or result.get("logout_error")) else 1)
     elif args.command in ("hook", "hook-codex", "hook-agy"):
         cmd_hook(args)
     elif args.command == "consult-gate":

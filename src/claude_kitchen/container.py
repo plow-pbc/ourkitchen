@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 MCP_CONFIG_NAME = "container-mcp.json"
-OWNER_LABEL = "com.srosro.kitchen.name"
+OWNER_LABEL = "co.plow.kitchen.name"
 RESERVED_ENV = {
     "HOME", "AGENT_KITCHEN", "AGENT_NAME", "STATUS_DIR",
     "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "KITCHEN_WIKI", "KITCHEN_NOTES",
