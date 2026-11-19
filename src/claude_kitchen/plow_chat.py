@@ -267,7 +267,7 @@ def worked_with(transcript: str, name: str, text: str, accounts: list[dict], own
            for i, shown in TAG.findall(t) if shown.casefold().split()[:1] == [name]}
     exclude = {owner, *(a["user_id"] for a in accounts)}
     named = lambda user_id: user_id not in exclude and (user_id in ids or local(user_id).casefold() == name)
-    partner = cache(lambda room: (p := dm_partner(accounts, room)) and (named(p) or display_name(accounts, p).casefold().split()[:1] == [name]))
+    partner = cache(lambda room: (p := dm_partner(accounts, room)) and p not in exclude and (named(p) or display_name(accounts, p).casefold().split()[:1] == [name]))
     refused = {b.get("tool_use_id") for e in recent if e["type"] == "user" for b in e["message"].get("content") or ()
                if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("is_error")}
     for e in recent:

@@ -752,10 +752,12 @@ def test_a_text_landing_while_the_reviewer_thinks_stops_the_send():
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with Aspen"}, False),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with quill"}, True),
     ("sous", {"room": "@owner:x", "text": "merged\n\n— with maple"}, False),
+    ("sous", {"room": "@owner:x", "text": "merged\n\n— with Sam"}, True),
 ], ids=["not-to-the-owner", "no-credit", "credits-none", "sent-it-one", "it-replied", "only-hours-ago", "never-worked-with",
         "this-send-isnt-a-consult", "a-refused-send-isnt-either", "credits-itself", "credits-the-owner", "credits-the-owner-capitalized", "an-alias-it-wrote-itself", "skip-flag", "dm-by-room-id",
         "dm-by-room-id-consulted", "someone-elses-dm", "a-room-it-isnt-in", "cook-credits-itself", "cook-credits-the-sous",
-        "sent-its-dm-room", "a-group-room-isnt-a-consult", "a-per-account-send-tool"])
+        "sent-its-dm-room", "a-group-room-isnt-a-consult", "a-per-account-send-tool",
+        "the-owners-dm-room-isnt-a-consult"])
 def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, monkeypatch, agent, send, refused):
     """With `consult-gate` set, a Swarm send naming or DMing the owner may end
     with a "— with <agent>" credit, or "— with none". One it ends with names
@@ -779,6 +781,7 @@ def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, mon
         entry(1, "user", inbound("@owner:x", "Owner")),
         entry(1, "assistant", sent("!dmAspen", "a call for you", id="t2")),
         entry(1, "assistant", sent("!group", "hi all", id="t3")),
+        entry(1, "assistant", sent("!dmOwner", "an earlier update", id="t5")),
         entry(1, "assistant", sent("@maple:x", "can you look?", id="t4", tool="mcp__swarm-cedar__send")),
         entry(1, "assistant", sent("@owner:x", "ask zelda?\n\n— with zelda", ["@zelda:x"], id="t1")),
         entry(1, "user", [{"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": "not sent"}]),
@@ -790,8 +793,8 @@ def test_a_swarm_send_to_the_owner_credits_only_an_agent_consulted(tmp_path, mon
              "!dmAspen": ["@cedar:x", "@aspen:x"], "!group": ["@cedar:x", "@pat:x", "@quill:x"]}
 
     def joined(account, path):
-        if path == "/profile/%40aspen%3Ax":
-            return {"displayname": "Aspen ⚉ the builder"}
+        if path.startswith("/profile/"):
+            return {"displayname": {"/profile/%40aspen%3Ax": "Aspen ⚉ the builder", "/profile/%40owner%3Ax": "Sam"}.get(path, "")}
         room = unquote(path.split("/")[2])
         if room not in rooms:
             raise HTTPError(path, 403, "not in the room", None, None)
