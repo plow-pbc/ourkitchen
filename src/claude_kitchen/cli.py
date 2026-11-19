@@ -865,7 +865,7 @@ def _reopen_cmd(kitchen: str) -> str:
     `kitchen restart` does: its `kitchen open` argv, resuming its conversation."""
     kj = json.loads((state_dir(kitchen) / "kitchen.json").read_text())
     launch = kj.get("sous_launch") or {}
-    argv = ["kitchen", *launch.get("argv", ["kitchen", "open"])[1:]] + ["--resume"] * bool(kj.get("sous_session_id"))
+    argv = ["kitchen", *launch.get("argv", ["kitchen", "open"])[1:]] + ["--resume"] * bool(_sous_session_id(state_dir(kitchen), kj))
     return f"cd {shlex.quote(launch.get('cwd') or kj.get('worktree') or kj['source'])} && {shlex.join(argv)}"
 
 
@@ -1647,13 +1647,12 @@ RESTART_DELAY = 3
 
 
 def _sous_session_id(base: Path, kitchen_state: dict) -> str | None:
-    if kitchen_state.get("sous_container"):
-        try:
-            container_session = json.loads((base / "container-session.json").read_text())
-        except (FileNotFoundError, json.JSONDecodeError):
-            container_session = {}
-        return container_session.get("sous_session_id") or kitchen_state.get("sous_session_id")
-    return kitchen_state.get("sous_session_id")
+    if not kitchen_state.get("sous_container"):
+        return kitchen_state.get("sous_session_id")
+    try:
+        return json.loads((base / "container-session.json").read_text()).get("sous_session_id") or kitchen_state.get("sous_session_id")
+    except (FileNotFoundError, json.JSONDecodeError):
+        return kitchen_state.get("sous_session_id")
 
 
 def cmd_restart(args):
@@ -1830,6 +1829,7 @@ def main():
         "statusline-segment",
         help="Print the kitchen-state segment for embedding in a statusline",
     )
+    sub.add_parser("statusline-command", help="(internal) Run Kitchen's packaged statusline")
 
     sub.add_parser("roles", help="List available cook roles")
     p_approve = sub.add_parser("approve-host", help="Approve an outside host for a Swarm agent here, as its owner's delegate")
@@ -1890,6 +1890,8 @@ def main():
         cmd_setup(args)
     elif args.command == "statusline-segment":
         cmd_statusline_segment(args)
+    elif args.command == "statusline-command":
+        os.execv("/bin/bash", ["bash", str(_PKG_DIR / "statusline-command.sh")])
     elif args.command == "roles":
         cmd_roles(args)
     elif args.command == "approve-host":

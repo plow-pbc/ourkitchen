@@ -11,7 +11,7 @@ OWNER_LABEL = "com.srosro.kitchen.name"
 RESERVED_ENV = {
     "HOME", "AGENT_KITCHEN", "AGENT_NAME", "STATUS_DIR",
     "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "KITCHEN_WIKI", "KITCHEN_NOTES",
-    "KITCHEN_CONTAINER",
+    "KITCHEN_CHANNEL_DIR", "KITCHEN_CONTAINER",
 }
 
 
@@ -89,13 +89,17 @@ def run(kitchen: str, project: Path, state_dir: Path, cfg: dict,
     session_file = state_dir / "container-session.json"
     if not session_file.exists():
         session_file.write_text("{}\n")
-    notes = state_dir / "notes"
-    notes.mkdir(exist_ok=True)
+    (state_dir / "notes").mkdir(exist_ok=True)
+    (state_dir / "channel").mkdir(exist_ok=True)
+    from claude_kitchen.state import channel_socket
+    channel = channel_socket(state_dir).parent
+    channel.mkdir(parents=True, exist_ok=True)
     mounts = [
         {"source": cfg["home_source"], "target": Path.home()},
         {"source": state_dir, "target": state_dir, "read_only": True},
         {"source": session_file, "target": session_file},
-        {"source": notes, "target": notes},
+        {"source": state_dir / "notes", "target": state_dir / "notes"},
+        {"source": channel, "target": Path("/tmp/kitchen-channel")},
     ]
     if "wiki" in cfg:
         mounts.append({"source": cfg["wiki"], "target": cfg["wiki"]})
@@ -112,7 +116,7 @@ def run(kitchen: str, project: Path, state_dir: Path, cfg: dict,
         "--workdir", str(project),
     ]
     container_env = {**cfg["environment"], **env}
-    container_env["KITCHEN_CONTAINER"] = "1"
+    container_env.update(KITCHEN_CHANNEL_DIR="/tmp/kitchen-channel", KITCHEN_CONTAINER="1")
     if "wiki" in cfg:
         container_env["KITCHEN_WIKI"] = str(cfg["wiki"])
     for key, value in container_env.items():

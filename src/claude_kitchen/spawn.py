@@ -14,11 +14,8 @@ from claude_kitchen.state import MCP_CONFIG_NAME, WINDOWS, channel_flags, pid_al
 
 
 FIRST_TURN_ENV = "KITCHEN_SOUS_FIRST_TURN"
-CONTAINER_CONTROL_PROMPT = (
-    "\n\nThis sous runs inside a container. Host tmux control stays with the operator: "
-    "do not hire or ticket cooks or restart yourself. Ask the operator to run those "
-    "Kitchen commands on the host."
-)
+CONTAINER_CONTROL_PROMPT = ("\n\nThis sous runs inside a container. Do not hire or ticket cooks or restart yourself; "
+                            "host tmux control stays with the operator, so ask them to run those Kitchen commands.")
 RUNTIME_HOOKS = (
     ("Stop", None, "kitchen hook", None),
     ("StopFailure", "authentication_failed|rate_limit", "kitchen hook", None),
@@ -156,7 +153,7 @@ def spawn_sous(kitchen: str, state_dir: Path, sous_prompt: str,
         claude_args.extend(["--settings", json.dumps({
             "hooks": _container_hooks(),
             "statusLine": {"type": "command", "command": container_config.get(
-                "statusline", "kitchen statusline-segment",
+                "statusline", "kitchen statusline-command",
             )},
         })])
     elif not _user_statusline():  # the status line is what receives the plan's usage
